@@ -2,11 +2,11 @@ import { DEFAULT_LAYOUT } from '../base';
 import { AppRouteRecordRaw } from '../types';
 
 const {{ name }}Route: AppRouteRecordRaw = {
-  path: '/{{ parentPath }}',
-  name: '{{ name }}Parent',
+  path: '/plugin/{{ pluginKebab }}',
+  name: '{{ pluginName }}{{ name }}Parent',
   component: DEFAULT_LAYOUT,
   meta: {
-    locale: 'menu.{{ parentPath }}',
+    locale: 'menu.plugin.{{ pluginKebab }}',
     icon: 'icon-apps',
     requiresAuth: true,
     order: 100,
@@ -14,13 +14,13 @@ const {{ name }}Route: AppRouteRecordRaw = {
   children: [
     {
       path: '{{ kebabName }}',
-      name: '{{ name }}List',
-      component: () => import('@/views/{{ parentPath }}/{{ kebabName }}/index.vue'),
+      name: '{{ pluginName }}{{ name }}List',
+      component: () => import('@/views/plugin/{{ pluginKebab }}/{{ viewName }}/index.vue'),
       meta: {
-        locale: 'menu.{{ parentPath }}.{{ kebabName }}',
+        locale: 'menu.plugin.{{ pluginKebab }}.{{ kebabName }}',
         requiresAuth: true,
         roles: ['*'],
-        permissions: ['{{ parentPath }}.{{ kebabName }}'],
+        permissions: ['plugin.{{ pluginKebab }}.{{ kebabName }}'],
       },
     },
   ],

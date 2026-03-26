@@ -1,0 +1,29 @@
+import { DEFAULT_LAYOUT } from '../base';
+import { AppRouteRecordRaw } from '../types';
+
+const {{ name }}Route: AppRouteRecordRaw = {
+  path: '/system',
+  name: '{{ name }}Parent',
+  component: DEFAULT_LAYOUT,
+  meta: {
+    locale: 'menu.system',
+    icon: 'icon-settings',
+    requiresAuth: true,
+    order: 90,
+  },
+  children: [
+    {
+      path: '{{ kebabName }}',
+      name: '{{ name }}List',
+      component: () => import('@/views/system/{{ viewName }}/index.vue'),
+      meta: {
+        locale: 'menu.system.{{ kebabName }}',
+        requiresAuth: true,
+        roles: ['*'],
+        permissions: ['system.{{ kebabName }}'],
+      },
+    },
+  ],
+};
+
+export default {{ name }}Route;

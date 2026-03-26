@@ -8,21 +8,35 @@ export interface {{ name }}Record {
   [key: string]: any;
 }
 
+export interface PaginatedResult<T = any> {
+  current_page: number;
+  data: T[];
+  total: number;
+  per_page: number;
+  last_page: number;
+}
+
+export interface GridResponse<T = any> {
+  columns: any[];
+  filters: any[];
+  data: PaginatedResult<T>;
+}
+
 const API_PREFIX = '{{ apiPrefix }}';
 
 export function get{{ name }}List(params: any) {
-  return axios.get(API_PREFIX, { params });
+  return axios.get<any, GridResponse<{{ name }}Record>>(API_PREFIX, { params });
 }
 
 export function get{{ name }}Detail(id: number) {
-  return axios.get(`${API_PREFIX}/${id}`);
+  return axios.get<any, {{ name }}Record>(`${API_PREFIX}/${id}`);
 }
 
-export function create{{ name }}(data: any) {
+export function create{{ name }}(data: Partial<{{ name }}Record>) {
   return axios.post(API_PREFIX, data);
 }
 
-export function update{{ name }}(id: number, data: any) {
+export function update{{ name }}(id: number, data: Partial<{{ name }}Record>) {
   return axios.put(`${API_PREFIX}/${id}`, data);
 }
 

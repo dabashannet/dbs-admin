@@ -1,19 +1,19 @@
 <template>
   <div class="container">
-    <Breadcrumb :items="['menu.system', 'menu.system.{{ kebabName }}']" />
+    <Breadcrumb :items="['menu.{{ parentPath }}', 'menu.{{ parentPath }}.{{ kebabName }}']" />
 
     <a-card class="general-card" style="margin-bottom: 16px">
       <a-row>
         <a-col :span="24">
           <a-space>
             <a-input
-              v-model="formModel.keyword"
+              v-model="searchForm.keyword"
               placeholder="搜索关键词"
               allow-clear
               style="width: 200px"
             />
             <a-range-picker
-              v-model="formModel.created_at"
+              v-model="searchForm.created_at"
               style="width: 250px"
               allow-clear
             />
@@ -51,27 +51,30 @@
         :data="tableData"
         :bordered="false"
         @page-change="onPageChange"
+        @sorter-change="onSorterChange"
       >
         <template #columns>
-          <a-table-column title="ID" data-index="id" :width="80" />
+          <a-table-column title="ID" data-index="id" :width="80" :sortable="{ sortDirections: ['ascend', 'descend'] }" />
           <a-table-column title="名称" data-index="name" />
-          <a-table-column title="创建时间" data-index="created_at">
+          <a-table-column title="创建时间" data-index="created_at" :sortable="{ sortDirections: ['ascend', 'descend'] }">
             <template #cell="{ record }">
               {{ formatDate(record.created_at) }}
             </template>
           </a-table-column>
-          <a-table-column title="操作" :width="150">
+          <a-table-column title="操作" :width="160" fixed="right">
             <template #cell="{ record }">
-              <a-button type="text" size="small" @click="handleEdit(record)">
-                <template #icon><icon-edit /></template>
-                编辑
-              </a-button>
-              <a-popconfirm content="确定要删除吗?" @ok="handleDelete(record)">
-                <a-button type="text" status="danger" size="small">
-                  <template #icon><icon-delete /></template>
-                  删除
+              <a-space>
+                <a-button type="text" size="small" @click="handleEdit(record)">
+                  <template #icon><icon-edit /></template>
+                  编辑
                 </a-button>
-              </a-popconfirm>
+                <a-popconfirm content="确定要删除吗?" @ok="handleDelete(record)">
+                  <a-button type="text" status="danger" size="small">
+                    <template #icon><icon-delete /></template>
+                    删除
+                  </a-button>
+                </a-popconfirm>
+              </a-space>
             </template>
           </a-table-column>
         </template>
@@ -107,9 +110,13 @@
 
   const loading = ref(false);
   const tableData = ref<any[]>([]);
-  const formModel = reactive({
+  const searchForm = reactive({
     keyword: '',
     created_at: [],
+  });
+  const sortParams = reactive({
+    sortField: '',
+    sortOrder: '',
   });
   const pagination = reactive({
     current: 1,
@@ -128,33 +135,47 @@
     return dayjs(date).format('YYYY-MM-DD HH:mm:ss');
   };
 
-  const fetchData = async (params: any = { current: 1, pageSize: 15 }) => {
+  const fetchData = async (page = 1) => {
     loading.value = true;
     try {
-      const { data } = await get{{ name }}List({
-        ...params,
-        ...formModel,
+      const res: any = await get{{ name }}List({
+        page,
+        pageSize: pagination.pageSize,
+        ...searchForm,
+        ...sortParams,
       });
-      tableData.value = data.data;
-      pagination.current = data.current_page;
-      pagination.total = data.total;
+      // 兼容 Grid 格式 { columns, filters, data: paginated } 和扁平格式
+      const paginated = res.data || res;
+      tableData.value = paginated.data || [];
+      pagination.current = paginated.current_page || 1;
+      pagination.total = paginated.total || 0;
+    } catch (err) {
+      console.error('Failed to fetch data:', err);
     } finally {
       loading.value = false;
     }
   };
 
   const search = () => {
-    fetchData({ ...pagination, current: 1 });
+    fetchData(1);
   };
 
   const reset = () => {
-    formModel.keyword = '';
-    formModel.created_at = [];
-    search();
+    searchForm.keyword = '';
+    searchForm.created_at = [];
+    sortParams.sortField = '';
+    sortParams.sortOrder = '';
+    fetchData(1);
   };
 
-  const onPageChange = (current: number) => {
-    fetchData({ ...pagination, current });
+  const onPageChange = (page: number) => {
+    fetchData(page);
+  };
+
+  const onSorterChange = (field: string, order: string) => {
+    sortParams.sortField = field;
+    sortParams.sortOrder = order;
+    fetchData(1);
   };
 
   const handleAdd = () => {
@@ -180,7 +201,7 @@
       }
       Message.success('保存成功');
       modalVisible.value = false;
-      fetchData(pagination);
+      fetchData(pagination.current);
     } catch (err) {
       // Error handled by interceptor
     }
@@ -195,7 +216,7 @@
     try {
       await delete{{ name }}(record.id);
       Message.success('删除成功');
-      fetchData(pagination);
+      fetchData(pagination.current);
     } catch (err) {
       // Error handled by interceptor
     }

@@ -1,0 +1,213 @@
+<template>
+  <div class="container">
+    <Breadcrumb :items="['menu.system', 'menu.system.{{ kebabName }}']" />
+
+    <a-card class="general-card" style="margin-bottom: 16px">
+      <a-row>
+        <a-col :span="24">
+          <a-space>
+            <a-input
+              v-model="formModel.keyword"
+              placeholder="搜索关键词"
+              allow-clear
+              style="width: 200px"
+            />
+            <a-range-picker
+              v-model="formModel.created_at"
+              style="width: 250px"
+              allow-clear
+            />
+            <a-button type="primary" @click="search">
+              <template #icon>
+                <icon-search />
+              </template>
+              搜索
+            </a-button>
+            <a-button @click="reset">
+              <template #icon>
+                <icon-refresh />
+              </template>
+              重置
+            </a-button>
+          </a-space>
+        </a-col>
+      </a-row>
+    </a-card>
+
+    <a-card class="general-card">
+      <a-row style="margin-bottom: 16px">
+        <a-col :span="12">
+          <a-button type="primary" @click="handleAdd">
+            <template #icon><icon-plus /></template>
+            新增
+          </a-button>
+        </a-col>
+      </a-row>
+
+      <a-table
+        row-key="id"
+        :loading="loading"
+        :pagination="pagination"
+        :data="tableData"
+        :bordered="false"
+        @page-change="onPageChange"
+      >
+        <template #columns>
+          <a-table-column title="ID" data-index="id" :width="80" />
+          <a-table-column title="名称" data-index="name" />
+          <a-table-column title="创建时间" data-index="created_at">
+            <template #cell="{ record }">
+              {{ formatDate(record.created_at) }}
+            </template>
+          </a-table-column>
+          <a-table-column title="操作" :width="150">
+            <template #cell="{ record }">
+              <a-button type="text" size="small" @click="handleEdit(record)">
+                <template #icon><icon-edit /></template>
+                编辑
+              </a-button>
+              <a-popconfirm content="确定要删除吗?" @ok="handleDelete(record)">
+                <a-button type="text" status="danger" size="small">
+                  <template #icon><icon-delete /></template>
+                  删除
+                </a-button>
+              </a-popconfirm>
+            </template>
+          </a-table-column>
+        </template>
+      </a-table>
+    </a-card>
+
+    <!-- Add/Edit Modal -->
+    <a-modal
+      v-model:visible="modalVisible"
+      :title="isEdit ? '编辑' : '新增'"
+      @ok="submitForm"
+      @cancel="resetForm"
+    >
+      <a-form :model="formData" auto-label-width>
+        <a-form-item field="name" label="名称" required>
+          <a-input v-model="formData.name" placeholder="请输入名称" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+  </div>
+</template>
+
+<script lang="ts" setup>
+  import { ref, reactive, onMounted } from 'vue';
+  import { Message } from '@arco-design/web-vue';
+  import {
+    get{{ name }}List,
+    create{{ name }},
+    update{{ name }},
+    delete{{ name }},
+  } from '@/api/{{ kebabName }}';
+  import dayjs from 'dayjs';
+
+  const loading = ref(false);
+  const tableData = ref<any[]>([]);
+  const formModel = reactive({
+    keyword: '',
+    created_at: [],
+  });
+  const pagination = reactive({
+    current: 1,
+    pageSize: 15,
+    total: 0,
+  });
+
+  const modalVisible = ref(false);
+  const isEdit = ref(false);
+  const formData = reactive({
+    id: 0,
+    name: '',
+  });
+
+  const formatDate = (date: string) => {
+    return dayjs(date).format('YYYY-MM-DD HH:mm:ss');
+  };
+
+  const fetchData = async (params: any = { current: 1, pageSize: 15 }) => {
+    loading.value = true;
+    try {
+      const { data } = await get{{ name }}List({
+        ...params,
+        ...formModel,
+      });
+      tableData.value = data.data;
+      pagination.current = data.current_page;
+      pagination.total = data.total;
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const search = () => {
+    fetchData({ ...pagination, current: 1 });
+  };
+
+  const reset = () => {
+    formModel.keyword = '';
+    formModel.created_at = [];
+    search();
+  };
+
+  const onPageChange = (current: number) => {
+    fetchData({ ...pagination, current });
+  };
+
+  const handleAdd = () => {
+    isEdit.value = false;
+    formData.id = 0;
+    formData.name = '';
+    modalVisible.value = true;
+  };
+
+  const handleEdit = (record: any) => {
+    isEdit.value = true;
+    formData.id = record.id;
+    formData.name = record.name;
+    modalVisible.value = true;
+  };
+
+  const submitForm = async () => {
+    try {
+      if (isEdit.value) {
+        await update{{ name }}(formData.id, formData);
+      } else {
+        await create{{ name }}(formData);
+      }
+      Message.success('保存成功');
+      modalVisible.value = false;
+      fetchData(pagination);
+    } catch (err) {
+      // Error handled by interceptor
+    }
+  };
+
+  const resetForm = () => {
+    formData.id = 0;
+    formData.name = '';
+  };
+
+  const handleDelete = async (record: any) => {
+    try {
+      await delete{{ name }}(record.id);
+      Message.success('删除成功');
+      fetchData(pagination);
+    } catch (err) {
+      // Error handled by interceptor
+    }
+  };
+
+  onMounted(() => {
+    fetchData();
+  });
+</script>
+
+<style scoped>
+  .container {
+    padding: 0 20px;
+  }
+</style>

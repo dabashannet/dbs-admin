@@ -1,0 +1,23 @@
+{
+    "name": "dabashan/dbs-admin",
+    "description": "Dabashan Admin scaffold commands and utilities",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Dabashan\\DbsAdmin\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Dabashan\\DbsAdmin\\DbsAdminServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "stable",
+    "require": {
+        "php": "^8.2",
+        "illuminate/support": "^12.0"
+    }
+}

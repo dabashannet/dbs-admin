@@ -1,0 +1,27 @@
+<?php
+
+namespace App\Admin\Controllers\Plugins\{{ plugin }};
+
+use Dabashan\DbsAdmin\Controllers\AdminController;
+use Dabashan\DbsAdmin\Grid\Grid;
+use Dabashan\DbsAdmin\Form\Form;
+use App\Admin\Models\Plugins\{{ model }};
+
+class {{ class }} extends AdminController
+{
+    protected string $model = {{ model }}::class;
+
+    protected function grid(): Grid
+    {
+        return Grid::make({{ model }}::query())
+            ->column('id', 'ID')->sortable()
+            ->column('created_at', '创建时间')->sortable()
+            ->perPage(15);
+    }
+
+    protected function form(): Form
+    {
+        return Form::make({{ model }}::class)
+            ->text('name', '名称')->required();
+    }
+}

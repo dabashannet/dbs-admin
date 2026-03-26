@@ -1,0 +1,31 @@
+import axios from 'axios';
+
+export interface {{ name }}Record {
+  id: number;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  [key: string]: any;
+}
+
+const API_PREFIX = '{{ apiPrefix }}';
+
+export function get{{ name }}List(params: any) {
+  return axios.get(API_PREFIX, { params });
+}
+
+export function get{{ name }}Detail(id: number) {
+  return axios.get(`${API_PREFIX}/${id}`);
+}
+
+export function create{{ name }}(data: any) {
+  return axios.post(API_PREFIX, data);
+}
+
+export function update{{ name }}(id: number, data: any) {
+  return axios.put(`${API_PREFIX}/${id}`, data);
+}
+
+export function delete{{ name }}(id: number) {
+  return axios.delete(`${API_PREFIX}/${id}`);
+}

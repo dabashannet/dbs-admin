@@ -1,0 +1,17 @@
+<?php
+
+namespace App\Admin\Models\Plugins;
+
+use Dabashan\DbsAdmin\Models\BaseAdminModel;
+
+/**
+ * {{ class }} Model
+ */
+class {{ class }} extends BaseAdminModel
+{
+    protected $table = '{{ table }}';
+
+    protected $fillable = [
+        //
+    ];
+}

@@ -2,14 +2,18 @@
 
 namespace Dabashan\DbsAdmin\Commands;
 
+use Dabashan\DbsAdmin\Traits\HasFileGeneration;
 use Illuminate\Console\Command;
 use Illuminate\Support\Str;
 
 class MakeAdminModel extends Command
 {
+    use HasFileGeneration;
+
     protected $signature = 'make:admin-model 
                             {name : Model name (e.g. AdminOrder)}
-                            {--m|migration : Create a new migration file for the model}';
+                            {--m|migration : Create a new migration file for the model}
+                            {--force : Overwrite existing files}';
 
     protected $description = 'Create a new Admin Core model extending BaseAdminModel';
 
@@ -34,7 +38,7 @@ class MakeAdminModel extends Command
         ]);
 
         $this->info("Admin Model created successfully:");
-        $this->line("  Model: {$modelPath}");
+        $this->line("  <fg=green>✓</> Model: {$modelPath}");
 
         // Generate migration if requested
         if ($this->option('migration')) {
@@ -45,29 +49,5 @@ class MakeAdminModel extends Command
         }
 
         return Command::SUCCESS;
-    }
-
-    protected function generateFile(string $path, string $stub, array $replacements): void
-    {
-        $dir = dirname($path);
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
-
-        if (file_exists($path)) {
-            $this->warn("File already exists: {$path}");
-            return;
-        }
-
-        $stubPath = dirname(__DIR__, 2) . "/stubs/{$stub}";
-
-        if (!file_exists($stubPath)) {
-            $this->error("Stub file not found: {$stubPath}");
-            return;
-        }
-
-        $content = file_get_contents($stubPath);
-        $content = str_replace(array_keys($replacements), array_values($replacements), $content);
-        file_put_contents($path, $content);
     }
 }

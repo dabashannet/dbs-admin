@@ -1,3 +1,12 @@
 export default {
   'menu.{{ parentPath }}.{{ kebabName }}': '{{ titleEn }}',
+  '{{ parentPath }}.{{ kebabName }}.searchPlaceholder': 'Search keyword',
+  '{{ parentPath }}.{{ kebabName }}.add': 'Add',
+  '{{ parentPath }}.{{ kebabName }}.edit': 'Edit',
+  '{{ parentPath }}.{{ kebabName }}.delete': 'Delete',
+  '{{ parentPath }}.{{ kebabName }}.search': 'Search',
+  '{{ parentPath }}.{{ kebabName }}.reset': 'Reset',
+  '{{ parentPath }}.{{ kebabName }}.deleteConfirm': 'Are you sure you want to delete?',
+  '{{ parentPath }}.{{ kebabName }}.saveSuccess': 'Saved successfully',
+  '{{ parentPath }}.{{ kebabName }}.deleteSuccess': 'Deleted successfully',
 };

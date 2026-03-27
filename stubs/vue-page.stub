@@ -3,31 +3,34 @@
     <Breadcrumb :items="['menu.{{ parentPath }}', 'menu.{{ parentPath }}.{{ kebabName }}']" />
 
     <a-card class="general-card" style="margin-bottom: 16px">
-      <a-row>
-        <a-col :span="24">
+      <a-row :gutter="16">
+        <a-col :xs="24" :sm="12" :md="8" :lg="6">
+          <a-input
+            v-model="searchForm.keyword"
+            :placeholder="$t('{{ parentPath }}.{{ kebabName }}.searchPlaceholder')"
+            allow-clear
+          />
+        </a-col>
+        <a-col :xs="24" :sm="12" :md="8" :lg="6">
+          <a-range-picker
+            v-model="searchForm.created_at"
+            style="width: 100%"
+            allow-clear
+          />
+        </a-col>
+        <a-col :xs="24" :sm="24" :md="8" :lg="6">
           <a-space>
-            <a-input
-              v-model="searchForm.keyword"
-              placeholder="搜索关键词"
-              allow-clear
-              style="width: 200px"
-            />
-            <a-range-picker
-              v-model="searchForm.created_at"
-              style="width: 250px"
-              allow-clear
-            />
             <a-button type="primary" @click="search">
               <template #icon>
                 <icon-search />
               </template>
-              搜索
+              {{ $t('{{ parentPath }}.{{ kebabName }}.search') }}
             </a-button>
             <a-button @click="reset">
               <template #icon>
                 <icon-refresh />
               </template>
-              重置
+              {{ $t('{{ parentPath }}.{{ kebabName }}.reset') }}
             </a-button>
           </a-space>
         </a-col>
@@ -39,7 +42,7 @@
         <a-col :span="12">
           <a-button type="primary" @click="handleAdd">
             <template #icon><icon-plus /></template>
-            新增
+            {{ $t('{{ parentPath }}.{{ kebabName }}.add') }}
           </a-button>
         </a-col>
       </a-row>
@@ -66,12 +69,12 @@
               <a-space>
                 <a-button type="text" size="small" @click="handleEdit(record)">
                   <template #icon><icon-edit /></template>
-                  编辑
+                  {{ $t('{{ parentPath }}.{{ kebabName }}.edit') }}
                 </a-button>
-                <a-popconfirm content="确定要删除吗?" @ok="handleDelete(record)">
+                <a-popconfirm :content="$t('{{ parentPath }}.{{ kebabName }}.deleteConfirm')" @ok="handleDelete(record)">
                   <a-button type="text" status="danger" size="small">
                     <template #icon><icon-delete /></template>
-                    删除
+                    {{ $t('{{ parentPath }}.{{ kebabName }}.delete') }}
                   </a-button>
                 </a-popconfirm>
               </a-space>
@@ -84,12 +87,12 @@
     <!-- Add/Edit Modal -->
     <a-modal
       v-model:visible="modalVisible"
-      :title="isEdit ? '编辑' : '新增'"
+      :title="isEdit ? $t('{{ parentPath }}.{{ kebabName }}.edit') : $t('{{ parentPath }}.{{ kebabName }}.add')"
       @ok="submitForm"
       @cancel="resetForm"
     >
-      <a-form :model="formData" auto-label-width>
-        <a-form-item field="name" label="名称" required>
+      <a-form ref="formRef" :model="formData" auto-label-width>
+        <a-form-item field="name" label="名称" :rules="[{ required: true, message: '请输入名称' }]">
           <a-input v-model="formData.name" placeholder="请输入名称" />
         </a-form-item>
       </a-form>
@@ -99,7 +102,9 @@
 
 <script lang="ts" setup>
   import { ref, reactive, onMounted } from 'vue';
+  import { useI18n } from 'vue-i18n';
   import { Message } from '@arco-design/web-vue';
+  import type { FormInstance } from '@arco-design/web-vue';
   import {
     get{{ name }}List,
     create{{ name }},
@@ -107,6 +112,8 @@
     delete{{ name }},
   } from '@/api/{{ kebabName }}';
   import dayjs from 'dayjs';
+
+  const { t } = useI18n();
 
   const loading = ref(false);
   const tableData = ref<any[]>([]);
@@ -126,6 +133,7 @@
 
   const modalVisible = ref(false);
   const isEdit = ref(false);
+  const formRef = ref<FormInstance>();
   const formData = reactive({
     id: 0,
     name: '',
@@ -138,19 +146,18 @@
   const fetchData = async (page = 1) => {
     loading.value = true;
     try {
-      const res: any = await get{{ name }}List({
+      const res = await get{{ name }}List({
         page,
         pageSize: pagination.pageSize,
         ...searchForm,
         ...sortParams,
       });
-      // 兼容 Grid 格式 { columns, filters, data: paginated } 和扁平格式
-      const paginated = res.data || res;
-      tableData.value = paginated.data || [];
-      pagination.current = paginated.current_page || 1;
-      pagination.total = paginated.total || 0;
+      // res 是 GridResponse，items 包含列表数据
+      tableData.value = res.items || [];
+      pagination.current = res.current_page || 1;
+      pagination.total = res.total || 0;
     } catch (err) {
-      console.error('Failed to fetch data:', err);
+      // 错误由拦截器统一处理
     } finally {
       loading.value = false;
     }
@@ -193,13 +200,16 @@
   };
 
   const submitForm = async () => {
+    const valid = await formRef.value?.validate();
+    if (valid) return;
+
     try {
       if (isEdit.value) {
         await update{{ name }}(formData.id, formData);
       } else {
         await create{{ name }}(formData);
       }
-      Message.success('保存成功');
+      Message.success(t('{{ parentPath }}.{{ kebabName }}.saveSuccess'));
       modalVisible.value = false;
       fetchData(pagination.current);
     } catch (err) {
@@ -210,12 +220,13 @@
   const resetForm = () => {
     formData.id = 0;
     formData.name = '';
+    formRef.value?.resetFields();
   };
 
   const handleDelete = async (record: any) => {
     try {
       await delete{{ name }}(record.id);
-      Message.success('删除成功');
+      Message.success(t('{{ parentPath }}.{{ kebabName }}.deleteSuccess'));
       fetchData(pagination.current);
     } catch (err) {
       // Error handled by interceptor

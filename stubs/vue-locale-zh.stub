@@ -1,3 +1,12 @@
 export default {
-  'menu.{{ parentPath }}.{{ kebabName }}': '{{ title }}',
+  'menu.{{ parentPath }}.{{ kebabName }}': '{{ title }}管理',
+  '{{ parentPath }}.{{ kebabName }}.searchPlaceholder': '搜索关键词',
+  '{{ parentPath }}.{{ kebabName }}.add': '新增',
+  '{{ parentPath }}.{{ kebabName }}.edit': '编辑',
+  '{{ parentPath }}.{{ kebabName }}.delete': '删除',
+  '{{ parentPath }}.{{ kebabName }}.search': '搜索',
+  '{{ parentPath }}.{{ kebabName }}.reset': '重置',
+  '{{ parentPath }}.{{ kebabName }}.deleteConfirm': '确定要删除吗？',
+  '{{ parentPath }}.{{ kebabName }}.saveSuccess': '保存成功',
+  '{{ parentPath }}.{{ kebabName }}.deleteSuccess': '删除成功',
 };

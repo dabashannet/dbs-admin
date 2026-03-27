@@ -205,12 +205,16 @@ class Grid
 
         // 分页
         $pageSize = $request->input('pageSize', $this->perPage);
-        $data = $query->paginate($pageSize);
+        $paginator = $query->paginate($pageSize);
 
         return [
             'columns' => array_map(fn(Column $c) => $c->toArray(), $this->columns),
             'filters' => array_map(fn(Filter $f) => $f->toArray(), $this->filters),
-            'data' => $data,
+            'items' => $paginator->items(),
+            'current_page' => $paginator->currentPage(),
+            'total' => $paginator->total(),
+            'per_page' => $paginator->perPage(),
+            'last_page' => $paginator->lastPage(),
         ];
     }
 

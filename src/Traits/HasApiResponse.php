@@ -51,7 +51,7 @@ trait HasApiResponse
     }
 
     /**
-     * 错误响应
+     * 错误响应（服务器错误，返回实际 HTTP 状态码）
      *
      * @param string $message 错误信息
      * @param int $code 错误码
@@ -63,6 +63,39 @@ trait HasApiResponse
             'code' => $code,
             'msg' => $message,
             'data' => [],
-        ]);
+        ], $code);
+    }
+
+    /**
+     * 未认证响应
+     *
+     * @param string $message 错误信息
+     * @return JsonResponse
+     */
+    protected function unauthorized(string $message = '未认证'): JsonResponse
+    {
+        return $this->fail($message, 401);
+    }
+
+    /**
+     * 权限不足响应
+     *
+     * @param string $message 错误信息
+     * @return JsonResponse
+     */
+    protected function forbidden(string $message = '权限不足'): JsonResponse
+    {
+        return $this->fail($message, 403);
+    }
+
+    /**
+     * 资源不存在响应
+     *
+     * @param string $message 错误信息
+     * @return JsonResponse
+     */
+    protected function notFound(string $message = '资源不存在'): JsonResponse
+    {
+        return $this->fail($message, 404);
     }
 }

@@ -71,9 +71,13 @@ abstract class AdminController extends Controller
     {
         $form = $this->form();
         $data = $form->validate($request, 'create');
-        $model = $this->model::create($data);
-        $this->afterSave($request, $model);
-        return $this->success($model);
+        try {
+            $model = $this->model::create($data);
+            $this->afterSave($request, $model);
+            return $this->success($model);
+        } catch (\Illuminate\Database\QueryException $e) {
+            return $this->fail('数据保存失败: ' . $this->formatDbError($e), 422);
+        }
     }
 
     /**
@@ -99,9 +103,13 @@ abstract class AdminController extends Controller
         $instance = $this->model::findOrFail($id);
         $form = $this->form();
         $data = $form->validate($request, 'update');
-        $instance->update($data);
-        $this->afterSave($request, $instance);
-        return $this->success($instance);
+        try {
+            $instance->update($data);
+            $this->afterSave($request, $instance);
+            return $this->success($instance);
+        } catch (\Illuminate\Database\QueryException $e) {
+            return $this->fail('数据更新失败: ' . $this->formatDbError($e), 422);
+        }
     }
 
     /**
@@ -112,7 +120,12 @@ abstract class AdminController extends Controller
      */
     public function destroy($id)
     {
-        $ids = is_array($id) ? $id : explode(',', $id);
+        $ids = is_array($id) ? $id : explode(',', (string) $id);
+        // 过滤无效 ID
+        $ids = array_filter($ids, fn($v) => is_numeric($v) && $v > 0);
+        if (empty($ids)) {
+            return $this->fail('无效的 ID 参数', 422);
+        }
         $this->model::destroy($ids);
         return $this->success([], '删除成功');
     }
@@ -125,6 +138,24 @@ abstract class AdminController extends Controller
      * @return void
      */
     protected function afterSave(Request $request, $model): void {}
+
+    /**
+     * 格式化数据库错误信息（生产环境不暴露敏感信息）
+     *
+     * @param \Illuminate\Database\QueryException $e
+     * @return string
+     */
+    protected function formatDbError(\Illuminate\Database\QueryException $e): string
+    {
+        if (app()->environment('production')) {
+            // Duplicate entry
+            if ($e->getCode() == 23000) {
+                return '数据已存在（唯一约束冲突）';
+            }
+            return '数据库操作失败';
+        }
+        return $e->getMessage();
+    }
 
     /**
      * 获取表单 schema

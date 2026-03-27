@@ -8,38 +8,39 @@ export interface {{ name }}Record {
   [key: string]: any;
 }
 
-export interface PaginatedResult<T = any> {
+export interface GridResponse<T = any> {
+  columns: any[];
+  filters: any[];
+  items: T[];
   current_page: number;
-  data: T[];
   total: number;
   per_page: number;
   last_page: number;
 }
 
-export interface GridResponse<T = any> {
-  columns: any[];
-  filters: any[];
-  data: PaginatedResult<T>;
-}
-
 const API_PREFIX = '{{ apiPrefix }}';
 
-export function get{{ name }}List(params: any) {
-  return axios.get<any, GridResponse<{{ name }}Record>>(API_PREFIX, { params });
+// 拦截器返回 response.data = {code, msg, data}，.then(res => res.data) 取业务数据
+export function get{{ name }}List(params: any): Promise<GridResponse<{{ name }}Record>> {
+  return axios.get(API_PREFIX, { params }).then((res: any) => res.data);
 }
 
-export function get{{ name }}Detail(id: number) {
-  return axios.get<any, {{ name }}Record>(`${API_PREFIX}/${id}`);
+export function get{{ name }}Detail(id: number): Promise<{{ name }}Record> {
+  return axios.get(`${API_PREFIX}/${id}`).then((res: any) => res.data);
+}
+
+export function get{{ name }}FormSchema(): Promise<any> {
+  return axios.get(`${API_PREFIX}/form-schema`).then((res: any) => res.data);
 }
 
 export function create{{ name }}(data: Partial<{{ name }}Record>) {
-  return axios.post(API_PREFIX, data);
+  return axios.post(API_PREFIX, data).then((res: any) => res.data);
 }
 
 export function update{{ name }}(id: number, data: Partial<{{ name }}Record>) {
-  return axios.put(`${API_PREFIX}/${id}`, data);
+  return axios.put(`${API_PREFIX}/${id}`, data).then((res: any) => res.data);
 }
 
 export function delete{{ name }}(id: number) {
-  return axios.delete(`${API_PREFIX}/${id}`);
+  return axios.delete(`${API_PREFIX}/${id}`).then((res: any) => res.data);
 }

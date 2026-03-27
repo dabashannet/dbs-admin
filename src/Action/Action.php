@@ -1,4 +1,11 @@
 <?php
+/*
+ * @Author: Author lvtu@dabashan.cc
+ * @Date: 2026-03-27 00:57:34
+ * @LastEditTime: 2026-03-27 17:08:47
+ * @LastEditors: LastEditors
+ * @Copyright: Copyright (c) 2025 by Dabashan.cc, All Rights Reserved.
+ */
 
 namespace Dabashan\DbsAdmin\Action;
 

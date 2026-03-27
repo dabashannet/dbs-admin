@@ -3,10 +3,9 @@
 namespace Dabashan\DbsAdmin;
 
 use Illuminate\Support\ServiceProvider;
-use Dabashan\DbsAdmin\Commands\MakeAdminController;
-use Dabashan\DbsAdmin\Commands\MakeAdminPluginController;
-use Dabashan\DbsAdmin\Commands\MakeAdminModel;
-use Dabashan\DbsAdmin\Commands\MakeAdminPluginModel;
+use Dabashan\DbsAdmin\Commands\MakeAdminCommand;
+use Dabashan\DbsAdmin\Commands\MakePluginCommand;
+use Dabashan\DbsAdmin\Commands\MakePluginPageCommand;
 
 class DbsAdminServiceProvider extends ServiceProvider
 {
@@ -25,10 +24,9 @@ class DbsAdminServiceProvider extends ServiceProvider
     {
         if ($this->app->runningInConsole()) {
             $this->commands([
-                MakeAdminController::class,
-                MakeAdminPluginController::class,
-                MakeAdminModel::class,
-                MakeAdminPluginModel::class,
+                MakeAdminCommand::class,
+                MakePluginCommand::class,
+                MakePluginPageCommand::class,
             ]);
         }
     }

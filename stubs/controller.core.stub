@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Admin\Controllers\Core;
+namespace App\Admin\Controllers;
 
 use Dabashan\DbsAdmin\Controllers\AdminController;
 use Dabashan\DbsAdmin\Grid\Grid;
 use Dabashan\DbsAdmin\Form\Form;
-use App\Admin\Models\Core\{{ model }};
+use App\Admin\Models\{{ model }};
 
 class {{ class }} extends AdminController
 {

@@ -1,0 +1,11 @@
+<?php
+
+use Illuminate\Support\Facades\Route;
+use Plugins\{{ pluginStudly }}\Admin\Controllers\{{ pluginStudly }}Controller;
+
+Route::prefix('admin/plugin/{{ pluginName }}')
+    ->middleware(['api', 'auth:admin'])
+    ->group(function () {
+        Route::get('config', [{{ pluginStudly }}Controller::class, 'config']);
+        Route::post('config', [{{ pluginStudly }}Controller::class, 'saveConfig']);
+    });

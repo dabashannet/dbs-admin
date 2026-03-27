@@ -1,0 +1,26 @@
+{
+    "name": "{{ pluginName }}",
+    "title": "{{ pluginTitle }}",
+    "description": "",
+    "version": "1.0.0",
+    "author": "",
+    "enabled": true,
+    "icon": "icon-apps",
+    "permissions": [
+        "plugin:{{ pluginName }}:view",
+        "plugin:{{ pluginName }}:manage"
+    ],
+    "menus": [
+        {
+            "title": "{{ pluginTitle }}",
+            "icon": "icon-apps",
+            "uri": "plugin/{{ pluginKebab }}",
+            "children": [
+                {
+                    "title": "插件首页",
+                    "uri": "plugin/{{ pluginKebab }}/index"
+                }
+            ]
+        }
+    ]
+}

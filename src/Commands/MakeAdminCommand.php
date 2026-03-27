@@ -6,19 +6,19 @@ use Dabashan\DbsAdmin\Traits\HasFileGeneration;
 use Illuminate\Console\Command;
 use Illuminate\Support\Str;
 
-class MakeAdminController extends Command
+class MakeAdminCommand extends Command
 {
     use HasFileGeneration;
 
-    protected $signature = 'make:admin-controller
-                            {name : Controller name (e.g. User, Order)}
+    protected $signature = 'make:admin
+                            {name : Resource name (e.g. User, Order)}
                             {--view-name= : Custom Vue view directory name (kebab-case)}
+                            {--no-model : Skip generating Model file}
                             {--no-web : Skip generating Vue frontend files}
-                            {--force : Overwrite existing files}
-                            {--model : Also generate the Model file}
-                            {--migration : Generate migration file (requires --model)}';
+                            {--migration : Generate migration file}
+                            {--force : Overwrite existing files}';
 
-    protected $description = 'Create a new Admin Core controller with Grid/Form, Vue page, API, Router and Locale files';
+    protected $description = 'Create Admin Controller and Model with Grid/Form, Vue page, API, Router and Locale files';
 
     public function handle(): int
     {
@@ -31,6 +31,9 @@ class MakeAdminController extends Command
         $pluralKebab = Str::plural($kebabName);
         $titleEn = $studlyName . ' Management';
 
+        // Table name: admin_{plural_snake}
+        $tableName = 'admin_' . Str::snake(Str::plural($studlyName));
+
         $replacements = [
             '{{ class }}' => $controllerName,
             '{{ model }}' => $modelName,
@@ -42,26 +45,30 @@ class MakeAdminController extends Command
             '{{ title }}' => $studlyName,
             '{{ titleEn }}' => $titleEn,
             '{{ pluralKebab }}' => $pluralKebab,
+            '{{ table }}' => $tableName,
         ];
 
-        $this->info('Creating Admin Controller...');
+        $this->info("Creating Admin resource [{$studlyName}]...");
         $this->newLine();
 
         // 1. Generate Controller
-        $controllerPath = app_path("Admin/Controllers/Core/{$controllerName}.php");
+        $controllerPath = app_path("Admin/Controllers/{$controllerName}.php");
         $this->generateFile($controllerPath, 'controller.core.stub', $replacements);
         $this->line("  <fg=green>✓</> Controller: {$controllerPath}");
 
-        // 2. Generate Model if requested
-        if ($this->option('model')) {
-            $modelArgs = ['name' => $modelName];
+        // 2. Generate Model (unless --no-model)
+        if (!$this->option('no-model')) {
+            $modelPath = app_path("Admin/Models/{$modelName}.php");
+            $this->generateFile($modelPath, 'model.core.stub', $replacements);
+            $this->line("  <fg=green>✓</> Model: {$modelPath}");
+
+            // Generate migration if requested
             if ($this->option('migration')) {
-                $modelArgs['--migration'] = true;
+                $this->call('make:migration', [
+                    'name' => "create_{$tableName}_table",
+                    '--create' => $tableName,
+                ]);
             }
-            if ($this->option('force')) {
-                $modelArgs['--force'] = true;
-            }
-            $this->call('make:admin-model', $modelArgs);
         }
 
         // Skip Vue files if --no-web
@@ -96,7 +103,7 @@ class MakeAdminController extends Command
         $this->line("  <fg=green>✓</> Locale EN: {$localeEnPath}");
 
         $this->newLine();
-        $this->info('Admin Controller created successfully!');
+        $this->info('Admin resource created successfully!');
         $this->newLine();
         $this->warn('Note: You may need to import the locale file in your main locale config:');
         $this->line("  import locale{$studlyName} from '@/views/system/{$viewName}/locale/zh-CN';");

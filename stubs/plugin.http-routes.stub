@@ -1,0 +1,10 @@
+<?php
+
+use Illuminate\Support\Facades\Route;
+use Plugins\{{ pluginStudly }}\Http\Controllers\{{ pluginStudly }}Controller;
+
+Route::prefix('api/plugin/{{ pluginName }}')
+    ->middleware('api')
+    ->group(function () {
+        Route::get('/', [{{ pluginStudly }}Controller::class, 'index']);
+    });

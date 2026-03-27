@@ -1,0 +1,31 @@
+<?php
+
+namespace Plugins\{{ pluginStudly }}\Admin\Controllers;
+
+use App\Admin\Controllers\Controller;
+use Illuminate\Http\Request;
+
+class {{ pluginStudly }}Controller extends Controller
+{
+    /**
+     * 获取插件配置
+     */
+    public function config()
+    {
+        return $this->success([
+            'plugin' => '{{ pluginName }}',
+        ]);
+    }
+
+    /**
+     * 保存插件配置
+     */
+    public function saveConfig(Request $request)
+    {
+        $data = $request->validate([
+            // 定义验证规则
+        ]);
+
+        return $this->success($data, '配置已保存');
+    }
+}

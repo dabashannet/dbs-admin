@@ -110,7 +110,8 @@
     create{{ name }},
     update{{ name }},
     delete{{ name }},
-  } from '@/api/{{ kebabName }}';
+  } from '@/api/plugin-{{ pluginKebab }}-{{ kebabName }}';
+  import Breadcrumb from '@/components/breadcrumb/index.vue';
   import dayjs from 'dayjs';
 
   const { t } = useI18n();

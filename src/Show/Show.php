@@ -3,21 +3,182 @@
 namespace Dabashan\DbsAdmin\Show;
 
 /**
+ * Show 字段定义类
+ *
+ *  TextEntry 的完整显示能力
+ */
+class ShowField
+{
+    protected string $key;
+    protected string $label;
+    protected ?string $displayType = null;
+    protected array $displayOptions = [];
+    protected ?\Closure $formatCallback = null;
+    protected ?string $default = null;
+    protected ?string $copyableText = null;
+    protected int $limit = 0;
+
+    public function __construct(string $key, string $label)
+    {
+        $this->key = $key;
+        $this->label = $label;
+    }
+
+    public function getKey(): string
+    {
+        return $this->key;
+    }
+
+    // ==================== 显示类型 ====================
+
+    public function badge(array $colors = [], string $variant = 'light'): self
+    {
+        $this->displayType = 'badge';
+        $this->displayOptions = ['colors' => $colors, 'variant' => $variant];
+        return $this;
+    }
+
+    public function label(): self
+    {
+        $this->displayType = 'label';
+        return $this;
+    }
+
+    public function copyable(?string $text = null): self
+    {
+        $this->displayType = 'copyable';
+        $this->copyableText = $text;
+        return $this;
+    }
+
+    public function dot(array $colors = []): self
+    {
+        $this->displayType = 'dot';
+        $this->displayOptions = ['colors' => $colors];
+        return $this;
+    }
+
+    public function image(int $width = 120, int $height = 80, bool $circle = false): self
+    {
+        $this->displayType = 'image';
+        $this->displayOptions = ['width' => $width, 'height' => $height, 'circle' => $circle];
+        return $this;
+    }
+
+    public function color(): self
+    {
+        $this->displayType = 'color';
+        return $this;
+    }
+
+    public function bar(array $colors = []): self
+    {
+        $this->displayType = 'bar';
+        $this->displayOptions = ['colors' => $colors];
+        return $this;
+    }
+
+    public function progress(int $max = 100, bool $showText = true): self
+    {
+        $this->displayType = 'progress';
+        $this->displayOptions = ['max' => $max, 'showText' => $showText];
+        return $this;
+    }
+
+    public function date(string $format = 'Y-m-d'): self
+    {
+        $this->displayType = 'date';
+        $this->displayOptions = ['format' => $format];
+        return $this;
+    }
+
+    public function datetime(string $format = 'Y-m-d H:i:s'): self
+    {
+        $this->displayType = 'datetime';
+        $this->displayOptions = ['format' => $format];
+        return $this;
+    }
+
+    public function money(string $symbol = '¥', int $decimals = 2): self
+    {
+        $this->displayType = 'money';
+        $this->displayOptions = ['symbol' => $symbol, 'decimals' => $decimals];
+        return $this;
+    }
+
+    public function tags(string $separator = ', '): self
+    {
+        $this->displayType = 'tags';
+        $this->displayOptions = ['separator' => $separator];
+        return $this;
+    }
+
+    public function using(\Closure $callback): self
+    {
+        $this->formatCallback = $callback;
+        return $this;
+    }
+
+    public function limit(int $length = 100): self
+    {
+        $this->limit = $length;
+        return $this;
+    }
+
+    public function default(?string $value): self
+    {
+        $this->default = $value;
+        return $this;
+    }
+
+    public function toArray(): array
+    {
+        return array_filter([
+            'key' => $this->key,
+            'label' => $this->label,
+            'displayType' => $this->displayType,
+            'displayOptions' => !empty($this->displayOptions) ? $this->displayOptions : null,
+            'default' => $this->default,
+            'limit' => $this->limit ?: null,
+            'hasCallback' => $this->formatCallback !== null,
+        ], fn($v) => $v !== null);
+    }
+
+    public function formatValue(mixed $value, ?object $row = null): mixed
+    {
+        if ($value === null || $value === '') {
+            return $this->default;
+        }
+
+        if ($this->formatCallback !== null && $row !== null) {
+            return ($this->formatCallback)($value, $row);
+        }
+
+        return match ($this->displayType) {
+            'date' => is_string($value) ? date($this->displayOptions['format'] ?? 'Y-m-d', strtotime($value)) : $value,
+            'datetime' => is_string($value) ? date($this->displayOptions['format'] ?? 'Y-m-d H:i:s', strtotime($value)) : $value,
+            'money' => ($this->displayOptions['symbol'] ?? '¥') . number_format((float) $value, $this->displayOptions['decimals'] ?? 2),
+            default => $value,
+        };
+    }
+}
+
+/**
  * Show 详情展示组件
  *
- * 用于定义详情页的展示字段
+ *  Infolist 的完整能力
+ * 支持面板布局、Tab 分组、关联展示、字段格式化
  */
 class Show
 {
     protected $model;
     protected array $fields = [];
     protected array $with = [];
+    protected array $layout = [];          // 布局: tabs, section
+    protected string $layoutMode = 'default';
+    protected ?string $title = null;       // 详情标题
+    protected string $labelWidth = 'auto'; // 标签宽度
 
-    /**
-     * 静态工厂方法
-     *
-     * @param mixed $model 模型实例
-     */
     public static function make($model): self
     {
         $instance = new self();
@@ -25,14 +186,9 @@ class Show
         return $instance;
     }
 
-    /**
-     * 设置预加载关联
-     *
-     * @param array|string $relations 关联名称
-     */
     public function with(array|string $relations): self
     {
-        $this->with = array_merge($this->with, (array)$relations);
+        $this->with = array_merge($this->with, (array) $relations);
         if ($this->model && !empty($this->with)) {
             $this->model->load($this->with);
         }
@@ -41,51 +197,174 @@ class Show
 
     /**
      * 添加展示字段
-     *
-     * @param string $key   字段名
-     * @param string $label 显示标签
      */
-    public function field(string $key, string $label): self
+    public function field(string $key, string $label): ShowField
     {
-        $this->fields[] = ['key' => $key, 'label' => $label];
+        $field = new ShowField($key, $label);
+        $this->fields[] = $field;
+        return $field;
+    }
+
+    // ==================== 快捷方法（兼容旧 API） ====================
+
+    /**
+     * 添加普通字段（快捷方式）
+     */
+    public function text(string $key, string $label): self
+    {
+        $this->fields[] = new ShowField($key, $label);
         return $this;
     }
 
     /**
-     * 转换为数组
-     *
-     * 如果未指定字段，返回模型的全部数据
-     * 如果指定了字段，只返回指定字段的数据
+     * 图片展示
      */
+    public function image(string $key, string $label, int $width = 200, int $height = 150): self
+    {
+        $field = new ShowField($key, $label);
+        $field->image($width, $height);
+        $this->fields[] = $field;
+        return $this;
+    }
+
+    /**
+     * 日期展示
+     */
+    public function date(string $key, string $label, string $format = 'Y-m-d H:i:s'): self
+    {
+        $field = new ShowField($key, $label);
+        $field->datetime($format);
+        $this->fields[] = $field;
+        return $this;
+    }
+
+    /**
+     * 金额展示
+     */
+    public function money(string $key, string $label, string $symbol = '¥'): self
+    {
+        $field = new ShowField($key, $label);
+        $field->money($symbol);
+        $this->fields[] = $field;
+        return $this;
+    }
+
+    /**
+     * 徽章展示
+     */
+    public function badge(string $key, string $label, array $colors = []): self
+    {
+        $field = new ShowField($key, $label);
+        $field->badge($colors);
+        $this->fields[] = $field;
+        return $this;
+    }
+
+    // ==================== 布局方法 ====================
+
+    /**
+     * Tab 分组展示
+     */
+    public function tabs(array $tabs): self
+    {
+        $this->layoutMode = 'tabs';
+        $this->layout = $tabs;
+        return $this;
+    }
+
+    /**
+     * 分区块展示
+     */
+    public function section(string $title, array $fields = []): self
+    {
+        $this->layoutMode = 'section';
+        $this->layout[] = ['title' => $title, 'fields' => $fields];
+        return $this;
+    }
+
+    /**
+     * 详情标题
+     */
+    public function title(string $title): self
+    {
+        $this->title = $title;
+        return $this;
+    }
+
+    /**
+     * 标签宽度
+     */
+    public function labelWidth(string $width): self
+    {
+        $this->labelWidth = $width;
+        return $this;
+    }
+
+    // ==================== 关联展示 ====================
+
+    /**
+     * 关联数据展示
+     *
+     * @param string $relation 关联方法名
+     * @param string $label 区块标题
+     * @param \Closure|null $callback 自定义展示回调
+     */
+    public function relation(string $relation, string $label, ?\Closure $callback = null): self
+    {
+        $this->layoutMode = 'relation';
+        $this->layout[] = [
+            'type' => 'relation',
+            'relation' => $relation,
+            'label' => $label,
+            'hasCallback' => $callback !== null,
+        ];
+        return $this;
+    }
+
+    // ==================== 核心方法 ====================
+
     public function toArray(): array
     {
         $data = $this->model->toArray();
 
-        if (empty($this->fields)) {
-            return $data;
+        // 如果定义了字段，只返回指定字段
+        if (!empty($this->fields)) {
+            $result = [];
+            foreach ($this->fields as $field) {
+                $key = $field->getKey();
+                $result[$key] = $field->formatValue(data_get($data, $key), $this->model);
+            }
+            return $result;
         }
 
-        // 只返回指定字段
-        $result = [];
-        foreach ($this->fields as $field) {
-            $result[$field['key']] = data_get($data, $field['key']);
-        }
-        return $result;
+        return $data;
     }
 
-    /**
-     * 获取字段定义（供前端渲染）
-     */
     public function getFields(): array
     {
-        return $this->fields;
+        return array_map(fn(ShowField $f) => $f->toArray(), $this->fields);
     }
 
-    /**
-     * 获取模型实例
-     */
     public function getModel()
     {
         return $this->model;
+    }
+
+    public function getLayout(): array
+    {
+        return [
+            'mode' => $this->layoutMode,
+            'config' => $this->layout,
+            'title' => $this->title,
+            'labelWidth' => $this->labelWidth,
+        ];
+    }
+
+    public function schema(): array
+    {
+        return [
+            'fields' => $this->getFields(),
+            'layout' => $this->getLayout(),
+        ];
     }
 }

@@ -245,19 +245,33 @@ PHP;
 
         $kebabName = $replacements['{{ kebabName }}'];
         $viewName = $replacements['{{ viewName }}'];
+        $title = $replacements['{{ title }}'];
+        $parentPath = $replacements['{{ parentPath }}'];
+        $apiPrefix = $replacements['{{ apiPrefix }}'];
 
-        $this->info('Generating Vue files...');
+        $this->info('Generating Vue files (DynamicCrud)...');
 
-        // 1. Generate Vue page
+        // 1. Generate Vue page (DynamicCrud wrapper)
         $vuePagePath = "{$webPath}/src/views/plugin/{$pluginKebab}/{$viewName}/index.vue";
-        $this->generateFile(
-            $vuePagePath,
-            'vue-page.stub',
-            $replacements
-        );
+        $vuePageContent = <<<VUE
+<template>
+  <DynamicCrud
+    api-prefix="{$apiPrefix}"
+    :breadcrumb="['menu.{$parentPath}', 'menu.{$parentPath}.{$kebabName}']"
+    add-title="新增{$title}"
+    edit-title="编辑{$title}"
+  />
+</template>
+
+<script lang="ts" setup>
+  import DynamicCrud from '@/components/dynamic/DynamicCrud.vue';
+</script>
+VUE;
+        $this->ensureDirectoryExists(dirname($vuePagePath));
+        file_put_contents($vuePagePath, $vuePageContent);
         $this->line("  <fg=green>✓</> Vue Page: src/views/plugin/{$pluginKebab}/{$viewName}/index.vue");
 
-        // 2. Generate API file
+        // 2. Generate API file (for manual use if needed)
         $apiFileName = "plugin-{$pluginKebab}-{$kebabName}";
         $apiPath = "{$webPath}/src/api/{$apiFileName}.ts";
         $this->generateFile(
@@ -294,6 +308,46 @@ PHP;
         );
         $this->line("  <fg=green>✓</> Locale (en-US): src/locale/plugin/{$pluginKebab}/{$kebabName}/en-US.ts");
 
+        // 5. Ensure dynamic components exist
+        $this->ensureDynamicComponentsExist();
+
         $this->newLine();
+    }
+
+    /**
+     * Ensure dynamic components exist in the web frontend
+     */
+    protected function ensureDynamicComponentsExist(): void
+    {
+        $targetDir = base_path('web/src/components/dynamic');
+        if (!is_dir($targetDir)) {
+            mkdir($targetDir, 0755, true);
+        }
+
+        $stubsDir = dirname(__DIR__, 2) . '/stubs';
+        $components = [
+            'DynamicCrud.vue' => 'vue-dynamic-crud.stub',
+            'DynamicTable.vue' => 'vue-dynamic-table.stub',
+            'DynamicForm.vue' => 'vue-dynamic-form.stub',
+        ];
+
+        foreach ($components as $filename => $stub) {
+            $targetPath = "{$targetDir}/{$filename}";
+            $stubPath = "{$stubsDir}/{$stub}";
+            if (!file_exists($targetPath) && file_exists($stubPath)) {
+                copy($stubPath, $targetPath);
+                $this->line("  <fg=green>✓</> Dynamic component created: {$filename}");
+            }
+        }
+    }
+
+    /**
+     * Ensure directory exists
+     */
+    protected function ensureDirectoryExists(string $path): void
+    {
+        if (!is_dir($path)) {
+            mkdir($path, 0755, true);
+        }
     }
 }

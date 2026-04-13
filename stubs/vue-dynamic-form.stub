@@ -1,0 +1,372 @@
+<!--
+  DynamicForm.vue — 动态表单组件
+  读取 PHP Form Schema 元数据，自动渲染 Arco Form
+  支持 30+ 字段类型、条件显示、字段联动、布局分组、验证
+-->
+<template>
+  <a-drawer
+    v-model:visible="visible"
+    :title="isEdit ? editTitle : addTitle"
+    :width="drawerWidth"
+    :mask-closable="false"
+    @ok="handleSubmit"
+    @cancel="handleCancel"
+  >
+    <a-form
+      ref="formRef"
+      :model="formData"
+      :layout="formConfig?.layout || 'horizontal'"
+      :label-width="formConfig?.labelWidth || 120"
+      auto-label-width
+      style="padding-right: 16px"
+    >
+      <!-- Tab 分组 -->
+      <a-tabs v-if="layoutMode === 'tabs'" v-model:active-key="activeTab">
+        <a-tab-pane v-for="(tab, idx) in layoutConfig" :key="String(idx)" :title="tab.label || tab.title">
+          <template v-for="fieldKey in tab.fields" :key="fieldKey">
+            <a-form-item
+              v-if="getFieldByKey(fieldKey) && isFieldVisible(fieldKey)"
+              :field="fieldKey"
+              :label="getFieldByKey(fieldKey)?.title"
+              :rules="getFieldRules(fieldKey)"
+            >
+              <component
+                :is="getComponent(getFieldByKey(fieldKey)!)"
+                v-model="formData[fieldKey]"
+                v-bind="getFieldProps(getFieldByKey(fieldKey)!)"
+              />
+            </a-form-item>
+          </template>
+        </a-tab-pane>
+      </a-tabs>
+
+      <!-- 默认布局 -->
+      <template v-else>
+        <a-form-item
+          v-for="field in visibleFields"
+          :key="field.key"
+          :field="field.key"
+          :label="field.title"
+          :rules="getFieldRules(field.key)"
+        >
+          <component
+            :is="getComponent(field)"
+            v-model="formData[field.key]"
+            v-bind="getFieldProps(field)"
+          />
+        </a-form-item>
+      </template>
+    </a-form>
+  </a-drawer>
+</template>
+
+<script lang="ts" setup>
+  import { ref, reactive, computed, watch } from 'vue';
+  import { Message } from '@arco-design/web-vue';
+  import axios from 'axios';
+  import Upload from '@/components/Upload/index.vue';
+
+  const props = defineProps<{
+    apiPrefix: string;
+    drawerWidth?: number | string;
+    addTitle?: string;
+    editTitle?: string;
+  }>();
+
+  const emit = defineEmits<{
+    'saved': [record: any];
+  }>();
+
+  const visible = ref(false);
+  const isEdit = ref(false);
+  const editId = ref<number | null>(null);
+  const formRef = ref();
+  const formData = reactive<Record<string, any>>({});
+  const formFields = ref<any[]>([]);
+  const formConfig = ref<any>(null);
+  const layoutMode = ref('default');
+  const layoutConfig = ref<any[]>([]);
+  const activeTab = ref('0');
+
+  const drawerWidth = computed(() => props.drawerWidth || 600);
+  const addTitle = computed(() => props.addTitle || '新增');
+  const editTitle = computed(() => props.editTitle || '编辑');
+
+  // 可见字段（根据条件显示逻辑过滤）
+  const visibleFields = computed(() => {
+    return formFields.value.filter((f) => isFieldVisible(f.key));
+  });
+
+  // 依赖字段的动态选项
+  const dependentOptions = reactive<Record<string, any[]>>({});
+
+  // 监听依赖字段变化
+  watch(
+    () => formData,
+    () => {
+      formFields.value.forEach((f) => {
+        if (f.depends && f.depends.length > 0) {
+          const depValues = f.depends.map((dep: string) => formData[dep]);
+          if (depValues.every((v: any) => v !== undefined && v !== null && v !== '')) {
+            // 字段依赖都满足时，请求动态选项
+            loadDependentOptions(f.key, depValues);
+          }
+        }
+      });
+    },
+    { deep: true },
+  );
+
+  const loadDependentOptions = async (fieldKey: string, depValues: any[]) => {
+    try {
+      const { data: resp } = await axios.get(`${props.apiPrefix}/field-options`, {
+        params: { field: fieldKey, depends: depValues },
+      });
+      const result = resp?.data?.data || resp?.data || [];
+      dependentOptions[fieldKey] = result;
+    } catch {
+      // 忽略错误，使用空选项
+    }
+  };
+
+  // 根据 key 获取字段
+  const getFieldByKey = (key: string) => {
+    return formFields.value.find((f) => f.key === key);
+  };
+
+  // 字段可见性判断
+  const isFieldVisible = (key: string): boolean => {
+    const field = getFieldByKey(key);
+    if (!field) return false;
+    // 创建/更新时字段可见性
+    if (isEdit.value && field.updateOnly) return true;
+    if (!isEdit.value && field.creationOnly) return true;
+    if (isEdit.value && field.creationOnly) return false;
+    if (!isEdit.value && field.updateOnly) return false;
+    // 条件显示
+    if (field.displayWhen) {
+      const { field: depField, operator, value } = field.displayWhen;
+      const depValue = formData[depField];
+      switch (operator) {
+        case '==': return depValue == value;
+        case '!=': return depValue != value;
+        case '>': return depValue > value;
+        case '<': return depValue < value;
+        case '>=': return depValue >= value;
+        case '<=': return depValue <= value;
+        case 'in': return Array.isArray(value) ? value.includes(depValue) : depValue === value;
+        case 'notIn': return Array.isArray(value) ? !value.includes(depValue) : depValue !== value;
+        default: return true;
+      }
+    }
+    return true;
+  };
+
+  // 获取字段验证规则
+  const getFieldRules = (key: string) => {
+    const field = getFieldByKey(key);
+    if (!field) return [];
+    const rules: any[] = [];
+    if (field.required) {
+      rules.push({ required: true, message: `请输入${field.title}` });
+    }
+    return rules;
+  };
+
+  // 字段类型 → Arco 组件映射
+  const getComponent = (field: any) => {
+    const type = field.type || 'text';
+    const map: Record<string, string> = {
+      text: 'a-input',
+      password: 'a-input-password',
+      email: 'a-input',
+      url: 'a-input',
+      number: 'a-input-number',
+      textarea: 'a-textarea',
+      select: 'a-select',
+      radio: 'a-radio-group',
+      checkbox: 'a-checkbox-group',
+      switch: 'a-switch',
+      slider: 'a-slider',
+      rate: 'a-rate',
+      color: 'a-color-picker',
+      tags: 'a-input-tag',
+      treeSelect: 'a-tree-select',
+      autoComplete: 'a-auto-complete',
+      cascader: 'a-cascader',
+      date: 'a-date-picker',
+      datetime: 'a-date-picker',
+      time: 'a-time-picker',
+      dateRange: 'a-range-picker',
+      year: 'a-date-picker',
+      month: 'a-date-picker',
+      image: 'Upload',
+      images: 'Upload',
+      file: 'Upload',
+      files: 'Upload',
+      editor: 'a-textarea',
+      code: 'a-textarea',
+      icon: 'a-input',
+      hidden: 'a-input',
+      divider: 'a-divider',
+      html: 'div',
+    };
+    return map[type] || 'a-input';
+  };
+
+  // 字段属性映射
+  const getFieldProps = (field: any) => {
+    const type = field.type || 'text';
+    const props: any = {};
+
+    if (field.placeholder) props.placeholder = field.placeholder;
+    if (field.disabled) props.disabled = field.disabled;
+    if (field.readonly) props.readonly = field.readonly;
+    if (field.maxLength) props.maxLength = field.maxLength;
+    if (field.minLength) props.minLength = field.minLength;
+    if (field.clearable !== false) props.allowClear = true;
+    if (type === 'text' || type === 'email' || type === 'url') {
+      if (field.prefix) props.prefix = field.prefix;
+      if (field.suffix) props.suffix = field.suffix;
+      if (field.prepend) props.addonBefore = field.prepend;
+      if (field.append) props.addonAfter = field.append;
+      if (field.maxLength) props.showWordLimit = true;
+    }
+    if (type === 'textarea') {
+      props.autoSize = { minRows: field.rows || 3 };
+      if (field.maxLength) props.showWordLimit = true;
+    }
+    if (type === 'number' || type === 'input-number') {
+      props.min = field.min ?? undefined;
+      props.max = field.max ?? undefined;
+      if (field.step) props.step = field.step;
+      if (field.precision) props.precision = field.precision;
+    }
+    if (type === 'select' || type === 'radio' || type === 'checkbox' || type === 'treeSelect' || type === 'cascader') {
+      // 优先使用依赖选项，其次使用静态选项
+      const opts = field.depends ? (dependentOptions[field.key] || []) :
+        (field.options ? Object.entries(field.options).map(([v, l]) => ({
+          value: v,
+          label: l as string,
+        })) : []);
+      if (opts.length > 0) props.options = opts;
+      if (field.multiple) props.multiple = true;
+      if (field.searchable) props.allowSearch = true;
+      if (field.allowCreate) props.allowCreate = true;
+    }
+    if (type === 'switch') {
+      props.type = 'round';
+    }
+    if (type === 'rate') {
+      if (field.rateCount) props.count = field.rateCount;
+      if (field.showScore !== false) props.showText = true;
+    }
+    if (type === 'date') {
+      props.format = field.format || 'YYYY-MM-DD';
+    }
+    if (type === 'datetime') {
+      props.showTime = true;
+      props.format = field.format || 'YYYY-MM-DD HH:mm:ss';
+    }
+    if (type === 'slider') {
+      props.min = field.min ?? 0;
+      props.max = field.max ?? 100;
+      if (field.step) props.step = field.step;
+    }
+    if (type === 'color') {
+      props.format = field.colorMode || 'hex';
+    }
+    if (type === 'image' || type === 'images' || type === 'file' || type === 'files') {
+      props.limit = ['image', 'file'].includes(type) ? 1 : (field.maxUpload || 10);
+      props.type = ['file', 'files'].includes(type) ? 'file' : 'image';
+      if (field.accept) props.accept = field.accept.join(',');
+      if (field.disk) props.disk = field.disk;
+      if (field.path) props.path = field.path;
+    }
+
+    return props;
+  };
+
+  // 加载表单 Schema
+  const loadSchema = async () => {
+    try {
+      const { data: resp } = await axios.get(`${props.apiPrefix}/form-schema`, {
+        params: { context: isEdit.value ? 'update' : 'create' },
+      });
+      const result = resp?.data?.data || resp?.data || {};
+      const schema = result.schema || result;
+      formFields.value = schema.fields || [];
+      formConfig.value = schema.config || {};
+      layoutMode.value = schema.layout?.mode || 'default';
+      layoutConfig.value = schema.layout?.config || [];
+    } catch {
+      // 如果无法获取 schema，使用空表单
+      formFields.value = [];
+    }
+  };
+
+  // 打开新增
+  const openAdd = async () => {
+    isEdit.value = false;
+    editId.value = null;
+    Object.keys(formData).forEach((key) => {
+      delete formData[key];
+    });
+    await loadSchema();
+    // 设置默认值
+    formFields.value.forEach((f) => {
+      if (f.default !== undefined && f.default !== null) {
+        formData[f.key] = f.default;
+      }
+    });
+    visible.value = true;
+  };
+
+  // 打开编辑
+  const openEdit = async (record: any) => {
+    isEdit.value = true;
+    editId.value = record.id;
+    Object.keys(formData).forEach((key) => {
+      delete formData[key];
+    });
+    await loadSchema();
+    // 填充数据
+    formFields.value.forEach((f) => {
+      formData[f.key] = record[f.key] ?? f.default ?? '';
+    });
+    visible.value = true;
+  };
+
+  // 提交
+  const handleSubmit = async () => {
+    try {
+      const valid = await formRef.value?.validate();
+      if (valid) return;
+
+      if (isEdit.value && editId.value) {
+        await axios.put(`${props.apiPrefix}/${editId.value}`, formData);
+        Message.success('更新成功');
+      } else {
+        await axios.post(props.apiPrefix, formData);
+        Message.success('创建成功');
+      }
+
+      visible.value = false;
+      emit('saved', formData);
+    } catch (err: any) {
+      Message.error(err?.response?.data?.msg || (isEdit.value ? '更新失败' : '创建失败'));
+    }
+  };
+
+  const handleCancel = () => {
+    visible.value = false;
+  };
+
+  defineExpose({ openAdd, openEdit, visible });
+</script>
+
+<style scoped lang="less">
+  :deep(.arco-form-item) {
+    margin-bottom: 20px;
+  }
+</style>

@@ -5,6 +5,13 @@ namespace Plugins\{{ pluginStudly }}\Admin\Controllers;
 use App\Admin\Controllers\Controller;
 use Illuminate\Http\Request;
 
+/**
+ * 插件后台管理控制器
+ *
+ * 如需完整 CRUD（Grid + Form），请改为继承：
+ *   use Dabashan\DbsAdmin\Controllers\AdminController;
+ * 并实现 grid() 和 form() 方法。
+ */
 class {{ pluginStudly }}Controller extends Controller
 {
     /**

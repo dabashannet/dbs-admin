@@ -3,6 +3,7 @@
 namespace Dabashan\DbsAdmin\Controllers;
 
 use Dabashan\DbsAdmin\Grid\Grid;
+use Dabashan\DbsAdmin\Grid\Action;
 use Dabashan\DbsAdmin\Form\Form;
 use Dabashan\DbsAdmin\Show\Show;
 use Dabashan\DbsAdmin\Traits\HasApiResponse;
@@ -13,60 +14,51 @@ use Illuminate\Routing\Controller;
  * 后台管理 CRUD 控制器基类
  *
  * 提供通用的 CRUD 方法，子类只需覆写 grid() 和 form() 方法
+ *  Resource 的完整能力
  */
 abstract class AdminController extends Controller
 {
     use HasApiResponse;
 
-    /**
-     * 模型类名
-     *
-     * @var string
-     */
     protected string $model;
 
-    /**
-     * 定义列表页 Grid
-     *
-     * @return Grid
-     */
-    abstract protected function grid(): Grid;
+    protected function grid(): Grid
+    {
+        $grid = Grid::make($this->model)
+            ->createAction()
+            ->editAction()
+            ->deleteAction()
+            ->batchDeleteAction();
+        $this->configureActions($grid);
+        return $grid;
+    }
 
     /**
-     * 定义表单
+     * 配置操作（子类可覆写自定义操作）
      *
-     * @return Form
+     * 示例:
+     * protected function configureActions(Grid $grid): void
+     * {
+     *     $grid->action(Action::make('export', '导出')->header()->type('success'));
+     *     $grid->action(Action::make('view', '查看')->row()->modal(['width' => 700]));
+     * }
      */
+    protected function configureActions(Grid $grid): void {}
+
     abstract protected function form(): Form;
 
-    /**
-     * 定义详情展示
-     *
-     * @param mixed $id 记录 ID
-     * @return Show
-     */
     protected function detail($id): Show
     {
         return Show::make($this->model::findOrFail($id));
     }
 
-    /**
-     * 列表页
-     *
-     * @param Request $request
-     * @return \Illuminate\Http\JsonResponse
-     */
+    // ==================== CRUD 接口 ====================
+
     public function index(Request $request)
     {
         return $this->success($this->grid()->resolve($request));
     }
 
-    /**
-     * 新建
-     *
-     * @param Request $request
-     * @return \Illuminate\Http\JsonResponse
-     */
     public function store(Request $request)
     {
         $form = $this->form();
@@ -80,24 +72,14 @@ abstract class AdminController extends Controller
         }
     }
 
-    /**
-     * 详情
-     *
-     * @param mixed $id
-     * @return \Illuminate\Http\JsonResponse
-     */
     public function show($id)
     {
-        return $this->success($this->detail($id)->toArray());
+        return $this->success([
+            'data' => $this->detail($id)->toArray(),
+            'schema' => $this->detail($id)->schema(),
+        ]);
     }
 
-    /**
-     * 更新
-     *
-     * @param Request $request
-     * @param mixed $id
-     * @return \Illuminate\Http\JsonResponse
-     */
     public function update(Request $request, $id)
     {
         $instance = $this->model::findOrFail($id);
@@ -112,58 +94,122 @@ abstract class AdminController extends Controller
         }
     }
 
-    /**
-     * 删除
-     *
-     * @param mixed $id 单个 ID 或逗号分隔的多个 ID
-     * @return \Illuminate\Http\JsonResponse
-     */
     public function destroy($id)
     {
         $ids = is_array($id) ? $id : explode(',', (string) $id);
-        // 过滤无效 ID
         $ids = array_filter($ids, fn($v) => is_numeric($v) && $v > 0);
         if (empty($ids)) {
             return $this->fail('无效的 ID 参数', 422);
         }
+        $count = count($ids);
         $this->model::destroy($ids);
-        return $this->success([], '删除成功');
+        return $this->success([], "已删除 {$count} 条记录");
+    }
+
+    // ==================== Schema 接口 ====================
+
+    /**
+     * 获取表单 Schema（用于动态渲染表单）
+     */
+    public function formSchema(?string $context = null)
+    {
+        return $this->success($this->form()->schema($context));
     }
 
     /**
-     * 保存后钩子（创建和更新共用）
-     *
-     * @param Request $request
-     * @param mixed $model
-     * @return void
+     * 获取详情 Schema（用于动态渲染详情页）
      */
-    protected function afterSave(Request $request, $model): void {}
+    public function showSchema($id)
+    {
+        return $this->success($this->detail($id)->schema());
+    }
 
     /**
-     * 格式化数据库错误信息（生产环境不暴露敏感信息）
-     *
-     * @param \Illuminate\Database\QueryException $e
-     * @return string
+     * 获取 Grid 元数据（不含数据，用于动态渲染表格结构）
      */
+    public function gridMeta()
+    {
+        return $this->success([
+            'columns' => $this->grid()->getColumns(),
+            'filters' => $this->grid()->getFilters(),
+            ...$this->grid()->resolveActionsByPosition(),
+        ]);
+    }
+
+    // ==================== 批量操作 ====================
+
+    /**
+     * 批量更新
+     */
+    public function batchUpdate(Request $request)
+    {
+        $request->validate([
+            'ids' => 'required|array',
+            'ids.*' => 'required|integer',
+            'field' => 'required|string',
+            'value' => 'required',
+        ]);
+
+        $ids = $request->input('ids');
+        $field = $request->input('field');
+        $value = $request->input('value');
+
+        $count = $this->model::whereIn('id', $ids)->update([$field => $value]);
+
+        return $this->success(['count' => $count], "已更新 {$count} 条记录");
+    }
+
+    /**
+     * 批量删除
+     */
+    public function batchDestroy(Request $request)
+    {
+        $request->validate([
+            'ids' => 'required|array',
+            'ids.*' => 'required|integer',
+        ]);
+
+        $ids = $request->input('ids');
+        $count = count($ids);
+        $this->model::whereIn('id', $ids)->delete();
+
+        return $this->success(['count' => $count], "已删除 {$count} 条记录");
+    }
+
+    // ==================== 状态切换 ====================
+
+    /**
+     * 切换字段状态（用于表格中 switch 组件的 AJAX 切换）
+     */
+    public function toggle(Request $request, $id)
+    {
+        $request->validate([
+            'field' => 'required|string',
+            'value' => 'required',
+        ]);
+
+        $instance = $this->model::findOrFail($id);
+        $field = $request->input('field');
+        $value = $request->input('value');
+
+        $instance->{$field} = $value;
+        $instance->save();
+
+        return $this->success(['id' => $id, 'field' => $field, 'value' => $value], '状态已更新');
+    }
+
+    // ==================== 钩子 ====================
+
+    protected function afterSave(Request $_request, mixed $_model): void {}
+
     protected function formatDbError(\Illuminate\Database\QueryException $e): string
     {
         if (app()->environment('production')) {
-            // Duplicate entry
             if ($e->getCode() == 23000) {
                 return '数据已存在（唯一约束冲突）';
             }
             return '数据库操作失败';
         }
         return $e->getMessage();
-    }
-
-    /**
-     * 获取表单 schema
-     *
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function formSchema()
-    {
-        return $this->success(['schema' => $this->form()->schema()]);
     }
 }

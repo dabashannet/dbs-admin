@@ -1,5 +1,19 @@
 import axios from 'axios';
 
+/**
+ * 注意：此 API 文件主要用于手动扩展场景。
+ * 常规 CRUD 操作由 DynamicCrud 组件自动处理，无需手动调用这些方法。
+ *
+ * DynamicCrud 组件会自动：
+ * - 获取列表数据 (GET)
+ * - 获取表单 Schema (GET /form-schema)
+ * - 创建数据 (POST)
+ * - 更新数据 (PUT)
+ * - 删除数据 (DELETE)
+ * - 批量操作 (POST /batch-*)
+ * - 状态切换 (POST /{id}/toggle)
+ */
+
 export interface {{ name }}Record {
   id: number;
   name: string;
@@ -20,27 +34,42 @@ export interface GridResponse<T = any> {
 
 const API_PREFIX = '{{ apiPrefix }}';
 
-// 拦截器返回 response.data = {code, msg, data}，.then(res => res.data) 取业务数据
+// 获取列表（DynamicCrud 自动调用）
 export function get{{ name }}List(params: any): Promise<GridResponse<{{ name }}Record>> {
   return axios.get(API_PREFIX, { params }).then((res: any) => res.data);
 }
 
-export function get{{ name }}Detail(id: number): Promise<{{ name }}Record> {
-  return axios.get(`${API_PREFIX}/${id}`).then((res: any) => res.data);
+// 获取表单 Schema（DynamicCrud 自动调用）
+export function get{{ name }}FormSchema(context?: string): Promise<any> {
+  return axios.get(`${API_PREFIX}/form-schema`, { params: { context } }).then((res: any) => res.data);
 }
 
-export function get{{ name }}FormSchema(): Promise<any> {
-  return axios.get(`${API_PREFIX}/form-schema`).then((res: any) => res.data);
-}
-
+// 创建（DynamicCrud 自动调用）
 export function create{{ name }}(data: Partial<{{ name }}Record>) {
   return axios.post(API_PREFIX, data).then((res: any) => res.data);
 }
 
+// 更新（DynamicCrud 自动调用）
 export function update{{ name }}(id: number, data: Partial<{{ name }}Record>) {
   return axios.put(`${API_PREFIX}/${id}`, data).then((res: any) => res.data);
 }
 
+// 删除（DynamicCrud 自动调用）
 export function delete{{ name }}(id: number) {
   return axios.delete(`${API_PREFIX}/${id}`).then((res: any) => res.data);
+}
+
+// 状态切换（DynamicCrud 自动调用）
+export function toggle{{ name }}(id: number, field: string, value: any) {
+  return axios.post(`${API_PREFIX}/${id}/toggle`, { field, value }).then((res: any) => res.data);
+}
+
+// 批量删除（DynamicCrud 自动调用）
+export function batchDestroy{{ name }}(ids: number[]) {
+  return axios.post(`${API_PREFIX}/batch-destroy`, { ids }).then((res: any) => res.data);
+}
+
+// 批量更新（DynamicCrud 自动调用）
+export function batchUpdate{{ name }}(ids: number[], field: string, value: any) {
+  return axios.post(`${API_PREFIX}/batch-update`, { ids, field, value }).then((res: any) => res.data);
 }

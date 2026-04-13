@@ -5,7 +5,8 @@ namespace Dabashan\DbsAdmin\Form;
 /**
  * Form 字段定义类
  *
- * 用于定义表单字段的属性，支持链式调用
+ *  Form Field 的完整能力
+ * 支持所有常见输入类型、验证、条件显示、布局嵌套
  */
 class Field
 {
@@ -23,14 +24,36 @@ class Field
     protected ?int $minValue = null;
     protected ?string $placeholder = null;
     protected ?string $help = null;
+    protected bool $disabled = false;
+    protected bool $readonly = false;
+    protected ?int $maxLength = null;
+    protected ?int $minLength = null;
+    protected ?string $prefix = null;
+    protected ?string $suffix = null;
+    protected ?string $append = null;
+    protected ?string $prepend = null;
+    protected array $displayWhen = [];       // 条件显示: ['status', '==', 1]
+    protected array $depends = [];           // 联动字段: 依赖哪些字段变化
+    protected ?\Closure $optionsCallback = null; // 动态选项回调
+    protected bool $searchable = false;      // select 是否可搜索
+    protected bool $allowCreate = false;     // select 是否允许创建新选项
+    protected bool $clearable = true;        // 显示清除按钮
+    protected ?int $step = null;             // 数字输入步长
+    protected ?int $precision = null;        // 数字输入精度
+    protected ?string $format = null;        // 日期/时间格式
+    protected ?string $colorMode = 'hex';    // 颜色模式: hex, rgb, hsl
+    protected ?int $rateCount = 5;           // 评分数量
+    protected ?bool $showScore = true;       // 显示评分分数
+    protected ?int $rows = 4;                // textarea 行数
+    protected ?string $editor = null;        // 富文本编辑器: tinymce, wangEditor
+    protected bool $isHidden = false;        // hidden 类型
+    protected ?string $html = null;          // html 类型内容
+    protected string $uploadDisk = 'public'; // 上传磁盘
+    protected ?string $uploadPath = null;    // 上传路径
+    protected array $uploadAccept = [];      // 接受的文件类型
+    protected int $maxUpload = 10;           // 最大上传数（多图）
+    protected ?string $iconPrefix = 'icon';  // 图标前缀
 
-    /**
-     * 创建字段实例
-     *
-     * @param string $key   字段名
-     * @param string $title 显示标题
-     * @param string $type  字段类型: text|password|select|multiSelect|switch|image|textarea|number
-     */
     public function __construct(string $key, string $title, string $type = 'text')
     {
         $this->key = $key;
@@ -38,52 +61,36 @@ class Field
         $this->type = $type;
     }
 
-    /**
-     * 获取字段名
-     */
     public function getKey(): string
     {
         return $this->key;
     }
 
-    /**
-     * 获取字段类型
-     */
     public function getType(): string
     {
         return $this->type;
     }
 
-    /**
-     * 设置字段类型
-     */
     public function type(string $type): self
     {
         $this->type = $type;
         return $this;
     }
 
-    /**
-     * 设置必填
-     */
+    // ==================== 验证方法 ====================
+
     public function required(bool $value = true): self
     {
         $this->isRequired = $value;
         return $this;
     }
 
-    /**
-     * 设置验证规则
-     */
     public function rules(string|array $rules): self
     {
         $this->validationRules = $rules;
         return $this;
     }
 
-    /**
-     * 添加单个验证规则
-     */
     public function rule(string $rule): self
     {
         if (is_string($this->validationRules)) {
@@ -93,9 +100,8 @@ class Field
         return $this;
     }
 
-    /**
-     * 设置选项（用于 select/multiSelect）
-     */
+    // ==================== 选项方法 ====================
+
     public function options($options): self
     {
         if ($options instanceof \Illuminate\Support\Collection) {
@@ -106,90 +112,271 @@ class Field
     }
 
     /**
-     * 设置默认值
+     * 动态选项（运行时从数据库/配置获取）
      */
+    public function optionsFrom(\Closure $callback): self
+    {
+        $this->optionsCallback = $callback;
+        return $this;
+    }
+
     public function default(mixed $value): self
     {
         $this->defaultValue = $value;
         return $this;
     }
 
-    /**
-     * 设置最大值/最大长度
-     */
     public function max(int $value): self
     {
         $this->maxValue = $value;
         return $this;
     }
 
-    /**
-     * 设置最小值/最小长度
-     */
     public function min(int $value): self
     {
         $this->minValue = $value;
         return $this;
     }
 
-    /**
-     * 设置为多选
-     */
     public function multiple(bool $value = true): self
     {
         $this->multipleFlag = $value;
         return $this;
     }
 
-    /**
-     * 设置仅创建时显示
-     */
     public function createOnly(bool $value = true): self
     {
         $this->creationOnlyFlag = $value;
         return $this;
     }
 
-    /**
-     * 设置仅创建时显示（别名）
-     */
     public function creationOnly(bool $value = true): self
     {
         return $this->createOnly($value);
     }
 
-    /**
-     * 设置仅更新时显示
-     */
     public function updateOnly(bool $value = true): self
     {
         $this->updateOnlyFlag = $value;
         return $this;
     }
 
-    /**
-     * 设置占位符
-     */
     public function placeholder(string $placeholder): self
     {
         $this->placeholder = $placeholder;
         return $this;
     }
 
-    /**
-     * 设置帮助文本
-     */
     public function help(string $help): self
     {
         $this->help = $help;
         return $this;
     }
 
+    // ==================== 状态方法 ====================
+
+    public function disabled(bool $value = true): self
+    {
+        $this->disabled = $value;
+        return $this;
+    }
+
+    public function readonly(bool $value = true): self
+    {
+        $this->readonly = $value;
+        return $this;
+    }
+
+    // ==================== 文本修饰 ====================
+
+    public function maxLength(int $length): self
+    {
+        $this->maxLength = $length;
+        return $this;
+    }
+
+    public function minLength(int $length): self
+    {
+        $this->minLength = $length;
+        return $this;
+    }
+
+    public function prefix(string $text): self
+    {
+        $this->prefix = $text;
+        return $this;
+    }
+
+    public function suffix(string $text): self
+    {
+        $this->suffix = $text;
+        return $this;
+    }
+
+    public function prepend(string $text): self
+    {
+        $this->prepend = $text;
+        return $this;
+    }
+
+    public function append(string $text): self
+    {
+        $this->append = $text;
+        return $this;
+    }
+
+    // ==================== 条件显示（ hidden/visibleWhen） ====================
+
     /**
-     * 获取验证规则
+     * 条件显示
      *
-     * @param int|null $id 编辑时的记录 ID（用于 unique 规则排除）
+     * @param string $field 依赖的字段名
+     * @param string $operator 操作符: ==, !=, >, <, >=, <=, in, notIn, contains
+     * @param mixed $value 比较值
      */
+    public function displayWhen(string $field, string $operator, mixed $value): self
+    {
+        $this->displayWhen = ['field' => $field, 'operator' => $operator, 'value' => $value];
+        return $this;
+    }
+
+    /**
+     * 依赖字段（字段联动）
+     */
+    public function depends(array $fields): self
+    {
+        $this->depends = $fields;
+        return $this;
+    }
+
+    // ==================== Select 增强 ====================
+
+    /**
+     * Select 可搜索
+     */
+    public function searchableOptions(bool $value = true): self
+    {
+        $this->searchable = $value;
+        return $this;
+    }
+
+    /**
+     * Select 允许创建新选项
+     */
+    public function allowCreate(bool $value = true): self
+    {
+        $this->allowCreate = $value;
+        return $this;
+    }
+
+    public function clearable(bool $value = true): self
+    {
+        $this->clearable = $value;
+        return $this;
+    }
+
+    // ==================== 数字增强 ====================
+
+    public function step(int $value): self
+    {
+        $this->step = $value;
+        return $this;
+    }
+
+    public function precision(int $value): self
+    {
+        $this->precision = $value;
+        return $this;
+    }
+
+    // ==================== 日期增强 ====================
+
+    public function format(string $format): self
+    {
+        $this->format = $format;
+        return $this;
+    }
+
+    // ==================== 颜色增强 ====================
+
+    public function colorMode(string $mode): self
+    {
+        $this->colorMode = $mode;
+        return $this;
+    }
+
+    // ==================== 评分增强 ====================
+
+    public function rateCount(int $count): self
+    {
+        $this->rateCount = $count;
+        return $this;
+    }
+
+    public function showScore(bool $value = true): self
+    {
+        $this->showScore = $value;
+        return $this;
+    }
+
+    // ==================== 文本域增强 ====================
+
+    public function rows(int $count): self
+    {
+        $this->rows = $count;
+        return $this;
+    }
+
+    // ==================== 富文本编辑器 ====================
+
+    /**
+     * 富文本编辑器
+     *
+     * @param string $driver tinymce, wangEditor
+     */
+    public function editor(string $driver = 'wangEditor'): self
+    {
+        $this->type = 'editor';
+        $this->editor = $driver;
+        return $this;
+    }
+
+    // ==================== 文件上传 ====================
+
+    public function disk(string $disk): self
+    {
+        $this->uploadDisk = $disk;
+        return $this;
+    }
+
+    public function path(string $path): self
+    {
+        $this->uploadPath = $path;
+        return $this;
+    }
+
+    public function accept(array $types): self
+    {
+        $this->uploadAccept = $types;
+        return $this;
+    }
+
+    public function maxUpload(int $count): self
+    {
+        $this->maxUpload = $count;
+        return $this;
+    }
+
+    // ==================== 图标 ====================
+
+    public function iconPrefix(string $prefix): self
+    {
+        $this->iconPrefix = $prefix;
+        return $this;
+    }
+
+    // ==================== 获取验证规则 ====================
+
     public function getRules(?int $id = null): array
     {
         $rules = [];
@@ -205,56 +392,65 @@ class Field
         }
 
         foreach ($rulesArray as $rule) {
-            // 处理 unique 规则，添加 ID 排除
             if ($id && str_starts_with($rule, 'unique:')) {
                 $rule .= ',' . $this->key . ',' . $id;
             }
             $rules[] = $rule;
         }
 
-        // 添加 max 规则
         if ($this->maxValue !== null) {
             $rules[] = 'max:' . $this->maxValue;
         }
 
-        // 添加 min 规则
         if ($this->minValue !== null) {
             $rules[] = 'min:' . $this->minValue;
+        }
+
+        if ($this->maxLength !== null) {
+            $rules[] = 'max:' . $this->maxLength;
+        }
+
+        if ($this->minLength !== null) {
+            $rules[] = 'min:' . $this->minLength;
         }
 
         return $rules;
     }
 
-    /**
-     * 判断是否必填
-     */
     public function isRequired(): bool
     {
         return $this->isRequired;
     }
 
-    /**
-     * 判断是否仅创建时显示
-     */
     public function isCreateOnly(): bool
     {
         return $this->creationOnlyFlag;
     }
 
-    /**
-     * 判断是否仅创建时显示（别名）
-     */
     public function isCreationOnly(): bool
     {
         return $this->creationOnlyFlag;
     }
 
-    /**
-     * 判断是否仅更新时显示
-     */
     public function isUpdateOnly(): bool
     {
         return $this->updateOnlyFlag;
+    }
+
+    public function isHidden(): bool
+    {
+        return $this->isHidden;
+    }
+
+    /**
+     * 解析选项（支持动态回调）
+     */
+    public function resolveOptions(): array
+    {
+        if ($this->optionsCallback !== null) {
+            return ($this->optionsCallback)();
+        }
+        return $this->options;
     }
 
     /**
@@ -267,7 +463,7 @@ class Field
             'title' => $this->title,
             'type' => $this->type,
             'required' => $this->isRequired ?: null,
-            'options' => !empty($this->options) ? $this->options : null,
+            'options' => $this->resolveOptions() ?: null,
             'default' => $this->defaultValue,
             'max' => $this->maxValue,
             'min' => $this->minValue,
@@ -276,6 +472,31 @@ class Field
             'updateOnly' => $this->updateOnlyFlag ?: null,
             'placeholder' => $this->placeholder,
             'help' => $this->help,
+            'disabled' => $this->disabled ?: null,
+            'readonly' => $this->readonly ?: null,
+            'maxLength' => $this->maxLength,
+            'minLength' => $this->minLength,
+            'prefix' => $this->prefix,
+            'suffix' => $this->suffix,
+            'prepend' => $this->prepend,
+            'append' => $this->append,
+            'displayWhen' => !empty($this->displayWhen) ? $this->displayWhen : null,
+            'depends' => !empty($this->depends) ? $this->depends : null,
+            'searchable' => $this->searchable ?: null,
+            'allowCreate' => $this->allowCreate ?: null,
+            'clearable' => $this->clearable ?: null,
+            'step' => $this->step,
+            'precision' => $this->precision,
+            'format' => $this->format,
+            'colorMode' => $this->type === 'color' ? $this->colorMode : null,
+            'rateCount' => $this->type === 'rate' ? $this->rateCount : null,
+            'showScore' => $this->type === 'rate' ? $this->showScore : null,
+            'rows' => $this->type === 'textarea' ? $this->rows : null,
+            'editor' => $this->type === 'editor' ? $this->editor : null,
+            'disk' => in_array($this->type, ['image', 'file', 'images']) ? $this->uploadDisk : null,
+            'path' => in_array($this->type, ['image', 'file', 'images']) ? $this->uploadPath : null,
+            'accept' => !empty($this->uploadAccept) ? $this->uploadAccept : null,
+            'maxUpload' => $this->type === 'images' ? $this->maxUpload : null,
         ], fn($v) => $v !== null);
     }
 }

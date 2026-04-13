@@ -1,0 +1,943 @@
+<!--
+  DynamicTable.vue — 动态表格组件
+  读取 PHP Grid 元数据，自动渲染 Arco Table
+  支持：列显示类型、筛选器、排序、分页、Filament 风格操作（弹窗/抽屉/新页面）
+-->
+<template>
+  <div class="dynamic-table">
+    <!-- 筛选器区域 -->
+    <a-card v-if="filters.length > 0" class="filter-card" :bordered="false" style="margin-bottom: 16px">
+      <a-row :gutter="16">
+        <a-col
+          v-for="filter in filters"
+          :key="filter.key"
+          :xs="24"
+          :sm="12"
+          :md="8"
+          :lg="6"
+          :xl="4"
+        >
+          <a-form-item :label="filter.title" hide-label>
+            <a-input
+              v-if="filter.type === 'like'"
+              v-model="filterValues[filter.key]"
+              :placeholder="filter.placeholder || `搜索${filter.title}`"
+              allow-clear
+              @press-enter="handleSearch"
+            />
+            <a-select
+              v-else-if="filter.type === 'select' || filter.type === 'equal'"
+              v-model="filterValues[filter.key]"
+              :placeholder="filter.placeholder || `选择${filter.title}`"
+              allow-clear
+              :options="filter.options ? Object.entries(filter.options).map(([v, l]) => ({ value: v, label: l })) : []"
+              @change="handleSearch"
+            />
+            <a-range-picker
+              v-else-if="filter.type === 'between_date'"
+              v-model="filterValues[filter.key]"
+              style="width: 100%"
+              @change="handleSearch"
+            />
+            <a-input-number
+              v-else-if="filter.type === 'gt'"
+              v-model="filterValues[filter.key]"
+              :placeholder="`大于${filter.title}`"
+              @press-enter="handleSearch"
+            />
+            <a-input-number
+              v-else-if="filter.type === 'lt'"
+              v-model="filterValues[filter.key]"
+              :placeholder="`小于${filter.title}`"
+              @press-enter="handleSearch"
+            />
+            <a-input
+              v-else
+              v-model="filterValues[filter.key]"
+              :placeholder="filter.placeholder || filter.title"
+              allow-clear
+              @press-enter="handleSearch"
+            />
+          </a-form-item>
+        </a-col>
+        <a-col :xs="24" :sm="12" :md="8" :lg="6" :xl="4">
+          <a-space>
+            <a-button type="primary" @click="handleSearch">
+              <template #icon><icon-search /></template>
+              搜索
+            </a-button>
+            <a-button @click="handleReset">
+              <template #icon><icon-refresh /></template>
+              重置
+            </a-button>
+          </a-space>
+        </a-col>
+      </a-row>
+    </a-card>
+
+    <!-- 操作栏 -->
+    <a-row style="margin-bottom: 16px" :gutter="16">
+      <a-col :span="12">
+        <a-space>
+          <slot name="toolbar-left" />
+          <!-- 头部操作按钮（PHP 定义） -->
+          <template v-for="action in headerActions" :key="action.key">
+            <a-button
+              v-if="!action.icon"
+              :status="action.type || 'primary'"
+              @click="handleHeaderAction(action)"
+            >
+              {{ action.label }}
+            </a-button>
+            <a-button
+              v-else
+              :status="action.type || 'primary'"
+              @click="handleHeaderAction(action)"
+            >
+              <template #icon><component :is="action.icon" /></template>
+              {{ action.label }}
+            </a-button>
+          </template>
+          <!-- 默认新增按钮（仅当没有 headerActions 时显示） -->
+          <a-button v-if="showAddButton && headerActions.length === 0" type="primary" @click="$emit('add')">
+            <template #icon><icon-plus /></template>
+            新增
+          </a-button>
+        </a-space>
+      </a-col>
+      <a-col :span="12" style="text-align: right">
+        <a-space>
+          <slot name="toolbar-right" />
+        </a-space>
+      </a-col>
+    </a-row>
+
+    <!-- 批量操作栏（选中后显示） -->
+    <a-alert v-if="bulkActions.length > 0 && selectedRows.length > 0" style="margin-bottom: 16px">
+      <template #title>
+        已选中 {{ selectedRows.length }} 条记录
+      </template>
+      <template #action>
+        <a-space>
+          <a-button
+            v-for="action in bulkActions"
+            :key="action.key"
+            :status="action.type || 'danger'"
+            size="small"
+            @click="handleBulkAction(action)"
+          >
+            {{ action.label }}
+          </a-button>
+        </a-space>
+      </template>
+    </a-alert>
+
+    <!-- 表格 -->
+    <a-table
+      row-key="id"
+      :columns="tableColumns"
+      :data="data"
+      :loading="loading"
+      :pagination="pagination"
+      :row-selection="showSelectAll ? rowSelection : undefined"
+      :bordered="{ cell: showBorder }"
+      @page-change="onPageChange"
+      @page-size-change="onPageSizeChange"
+      @sorter-change="onSorterChange"
+      @selection-change="onSelectionChange"
+    >
+      <!-- 动态渲染列 -->
+      <template v-for="col in arcoColumns" #[col.slotName]="{ record }" :key="col.dataIndex">
+        <!-- Badge 徽章 -->
+        <template v-if="col._displayType === 'badge'">
+          <a-tag
+            :color="getBadgeColor(record[col.dataIndex], col)"
+            :variant="getBadgeVariant(col)"
+          >
+            {{ getBadgeText(record[col.dataIndex], col) }}
+          </a-tag>
+        </template>
+        <!-- Switch 开关 -->
+        <template v-else-if="col._displayType === 'switch'">
+          <a-switch
+            :model-value="!!record[col.dataIndex]"
+            size="small"
+            @change="(val: boolean) => handleToggle(record, col.dataIndex, val)"
+          />
+        </template>
+        <!-- Image 图片 -->
+        <template v-else-if="col._displayType === 'image'">
+          <a-image
+            v-if="record[col.dataIndex]"
+            :src="record[col.dataIndex]"
+            :width="col._displayOptions?.width || 40"
+            :height="col._displayOptions?.height || 40"
+            :style="{ borderRadius: col._displayOptions?.circle ? '50%' : '4px' }"
+          />
+          <span v-else style="color: #999">-</span>
+        </template>
+        <!-- Tags 标签组 -->
+        <template v-else-if="col._displayType === 'tags'">
+          <a-space wrap>
+            <a-tag
+              v-for="(tag, idx) in parseTags(record[col.dataIndex], col)"
+              :key="idx"
+            >
+              {{ tag }}
+            </a-tag>
+          </a-space>
+        </template>
+        <!-- Progress 进度条 -->
+        <template v-else-if="col._displayType === 'progress'">
+          <a-progress
+            :percent="Number(record[col.dataIndex]) || 0"
+            :status="getProgressStatus(Number(record[col.dataIndex]), col)"
+            :show-text="col._displayOptions?.showText !== false"
+            style="width: 120px"
+          />
+        </template>
+        <!-- Bar 数值条 -->
+        <template v-else-if="col._displayType === 'bar'">
+          <a-progress
+            :percent="Number(record[col.dataIndex]) || 0"
+            :show-text="false"
+            :color="getBarColor(Number(record[col.dataIndex]), col)"
+            style="width: 120px"
+          />
+        </template>
+        <!-- Color 色块 -->
+        <template v-else-if="col._displayType === 'color'">
+          <a-space>
+            <span
+              :style="{
+                display: 'inline-block',
+                width: '16px',
+                height: '16px',
+                borderRadius: '4px',
+                backgroundColor: record[col.dataIndex],
+                border: '1px solid #e5e6eb',
+              }"
+            />
+            <span>{{ record[col.dataIndex] }}</span>
+          </a-space>
+        </template>
+        <!-- Copyable 可复制 -->
+        <template v-else-if="col._displayType === 'copyable'">
+          <a-typography-paragraph copyable :copyable-text="record[col.dataIndex]" ellipsis>
+            {{ record[col.dataIndex] }}
+          </a-typography-paragraph>
+        </template>
+        <!-- Dot 圆点 -->
+        <template v-else-if="col._displayType === 'dot'">
+          <a-space>
+            <a-badge :status="getDotStatus(record[col.dataIndex], col)" />
+            <span>{{ getDotText(record[col.dataIndex], col) }}</span>
+          </a-space>
+        </template>
+        <!-- Date/DateTime 日期 -->
+        <template v-else-if="col._displayType === 'date' || col._displayType === 'datetime'">
+          {{ formatDate(record[col.dataIndex]) }}
+        </template>
+        <!-- Money 金额 -->
+        <template v-else-if="col._displayType === 'money'">
+          <span style="color: #f53f3f; font-weight: 600">{{ record[col.dataIndex] }}</span>
+        </template>
+        <!-- Count 计数 -->
+        <template v-else-if="col._displayType === 'count'">
+          {{ record[col.dataIndex] }}
+        </template>
+        <!-- Default fallback -->
+        <template v-else>
+          {{ formatDefault(record[col.dataIndex], col) }}
+        </template>
+      </template>
+
+      <!-- 操作列（PHP 定义的行操作） -->
+      <template #_actions="{ record }">
+        <a-space>
+          <template v-for="action in rowActions" :key="action.key">
+            <!-- 确认弹窗 -->
+            <a-popconfirm
+              v-if="action.confirm"
+              :content="getConfirmText(action, record)"
+              @ok="handleRowActionConfirm(action, record)"
+            >
+              <a-button :status="action.type" size="mini">
+                <template v-if="action.icon"><component :is="action.icon" /></template>
+                {{ action.label }}
+              </a-button>
+            </a-popconfirm>
+            <!-- 普通按钮 -->
+            <a-button
+              v-else
+              :status="action.type"
+              size="mini"
+              @click="handleRowAction(action, record)"
+            >
+              <template v-if="action.icon"><component :is="action.icon" /></template>
+              {{ action.label }}
+            </a-button>
+          </template>
+          <slot name="row-actions" :record="record" />
+        </a-space>
+      </template>
+    </a-table>
+
+    <!-- ====== 操作弹窗 ====== -->
+
+    <!-- Modal 弹窗（适合表单编辑） -->
+    <a-modal
+      v-model:visible="modalVisible"
+      :title="modalTitle"
+      :width="modalProps.width || 600"
+      :mask-closable="modalProps.maskClosable ?? false"
+      @ok="handleModalSubmit"
+      @cancel="modalVisible = false"
+    >
+      <a-spin :loading="modalLoading">
+        <a-form
+          ref="modalFormRef"
+          :model="modalFormData"
+          layout="vertical"
+        >
+          <a-form-item
+            v-for="field in modalFields"
+            :key="field.key"
+            :field="field.key"
+            :label="field.title"
+            :rules="field.required ? [{ required: true, message: `请输入${field.title}` }] : []"
+          >
+            <component
+              :is="getModalComponent(field)"
+              v-model="modalFormData[field.key]"
+              v-bind="getModalFieldProps(field)"
+            />
+          </a-form-item>
+        </a-form>
+      </a-spin>
+    </a-modal>
+
+    <!-- Drawer 抽屉（适合详情/编辑） -->
+    <a-drawer
+      v-model:visible="drawerVisible"
+      :title="drawerTitle"
+      :width="drawerProps.width || 600"
+      :mask-closable="drawerProps.maskClosable ?? false"
+      @ok="handleDrawerSubmit"
+      @cancel="drawerVisible = false"
+    >
+      <a-spin :loading="drawerLoading">
+        <a-form
+          ref="drawerFormRef"
+          :model="drawerFormData"
+          layout="vertical"
+        >
+          <a-form-item
+            v-for="field in drawerFields"
+            :key="field.key"
+            :field="field.key"
+            :label="field.title"
+            :rules="field.required ? [{ required: true, message: `请输入${field.title}` }] : []"
+          >
+            <component
+              :is="getDrawerComponent(field)"
+              v-model="drawerFormData[field.key]"
+              v-bind="getDrawerFieldProps(field)"
+            />
+          </a-form-item>
+        </a-form>
+      </a-spin>
+    </a-drawer>
+  </div>
+</template>
+
+<script lang="ts" setup>
+  import { ref, reactive, computed } from 'vue';
+  import { Message } from '@arco-design/web-vue';
+  import axios from 'axios';
+  import Upload from '@/components/Upload/index.vue';
+
+  const props = defineProps<{
+    apiPrefix: string;
+    autoFetch?: boolean;
+    showAddButton?: boolean;
+    showBorder?: boolean;
+    showSelectAll?: boolean;
+    emptyText?: string;
+    perPageOptions?: number[];
+  }>();
+
+  const emit = defineEmits<{
+    'add': [];
+    'edit': [record: any];
+    'delete': [id: number];
+    'toggle': [record: any, field: string, value: boolean];
+    'action': [action: any, record: any];
+    'loaded': [data: any];
+  }>();
+
+  const loading = ref(false);
+  const data = ref<any[]>([]);
+  const columns = ref<any[]>([]);
+  const filters = ref<any[]>([]);
+  const headerActions = ref<any[]>([]);
+  const rowActions = ref<any[]>([]);
+  const bulkActions = ref<any[]>([]);
+  const selectedRows = ref<number[]>([]);
+
+  const filterValues = reactive<Record<string, any>>({});
+  const sortParams = reactive({ sortField: '', sortOrder: '' });
+  const showBorder = computed(() => props.showBorder ?? true);
+  const showSelectAll = computed(() => props.showSelectAll ?? true);
+
+  const pagination = reactive({
+    current: 1,
+    pageSize: 20,
+    total: 0,
+    showTotal: true,
+    showPageSize: true,
+    pageSizeOptions: props.perPageOptions || [10, 20, 50, 100],
+  });
+
+  const rowSelection = reactive({
+    type: 'checkbox' as const,
+    showCheckedAll: true,
+    onlyCurrent: false,
+  });
+
+  // ====== Modal 状态 ======
+  const modalVisible = ref(false);
+  const modalTitle = ref('');
+  const modalProps = ref<any>({});
+  const modalLoading = ref(false);
+  const modalFormRef = ref();
+  const modalFormData = reactive<Record<string, any>>({});
+  const modalFields = ref<any[]>([]);
+  const modalActionRecord = ref<any>(null);
+
+  // ====== Drawer 状态 ======
+  const drawerVisible = ref(false);
+  const drawerTitle = ref('');
+  const drawerProps = ref<any>({});
+  const drawerLoading = ref(false);
+  const drawerFormRef = ref();
+  const drawerFormData = reactive<Record<string, any>>({});
+  const drawerFields = ref<any[]>([]);
+  const drawerActionRecord = ref<any>(null);
+
+  // ====== 列转换 ======
+  const arcoColumns = computed(() => {
+    return columns.value.map((col) => {
+      const arcoCol: any = {
+        title: col.title,
+        dataIndex: col.dataIndex || col.key,
+        slotName: col.dataIndex || col.key,
+      };
+
+      if (col.width) arcoCol.width = col.width;
+      if (col.align) arcoCol.align = col.align;
+      if (col.hidden) arcoCol.hidden = true;
+      if (col.sortable) {
+        arcoCol.sortable = { sortDirections: ['ascend', 'descend'] };
+      }
+      if (col.wrap) {
+        arcoCol.cellStyle = { whiteSpace: 'normal', wordBreak: 'break-all' };
+      }
+
+      if (col.displayType) {
+        arcoCol._displayType = col.displayType;
+        arcoCol._displayOptions = col.displayOptions || {};
+        arcoCol._default = col.default;
+        arcoCol._limit = col.limit;
+        arcoCol._prefix = col.prefix;
+        arcoCol._suffix = col.suffix;
+        arcoCol._decimals = col.decimals;
+      }
+
+      return arcoCol;
+    });
+  });
+
+  const operationColumn = computed(() => {
+    if (rowActions.value.length === 0) return null;
+    return {
+      title: '操作',
+      dataIndex: '_actions',
+      slotName: '_actions',
+      width: 'auto',
+      fixed: 'right',
+    };
+  });
+
+  const tableColumns = computed(() => {
+    const cols = [...arcoColumns.value];
+    if (operationColumn.value) {
+      cols.push(operationColumn.value);
+    }
+    return cols;
+  });
+
+  // ====== 数据获取 ======
+  const fetchData = async (page = 1) => {
+    loading.value = true;
+    try {
+      const params: any = { page, pageSize: pagination.pageSize };
+      Object.keys(filterValues).forEach((key) => {
+        if (filterValues[key] !== '' && filterValues[key] !== null && filterValues[key] !== undefined) {
+          params[key] = filterValues[key];
+        }
+      });
+      if (sortParams.sortField) {
+        params.sortField = sortParams.sortField;
+        params.sortOrder = sortParams.sortOrder;
+      }
+
+      const { data: resp } = await axios.get(props.apiPrefix, { params });
+      const result = resp?.data || resp;
+
+      columns.value = result.columns || [];
+      filters.value = result.filters || [];
+      headerActions.value = result.headerActions || [];
+      rowActions.value = result.rowActions || [];
+      bulkActions.value = result.bulkActions || [];
+      data.value = result.items || result.data || [];
+      pagination.total = result.total || data.value.length;
+      pagination.current = result.current_page || 1;
+
+      if (result.per_page_options) pagination.pageSizeOptions = result.per_page_options;
+
+      emit('loaded', result);
+    } catch (err: any) {
+      Message.error(err?.response?.data?.msg || '获取数据失败');
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const handleSearch = () => {
+    pagination.current = 1;
+    fetchData(1);
+  };
+
+  const handleReset = () => {
+    Object.keys(filterValues).forEach((key) => {
+      filterValues[key] = undefined;
+    });
+    sortParams.sortField = '';
+    sortParams.sortOrder = '';
+    pagination.current = 1;
+    fetchData(1);
+  };
+
+  const onPageChange = (page: number) => {
+    pagination.current = page;
+    fetchData(page);
+  };
+
+  const onPageSizeChange = (pageSize: number) => {
+    pagination.pageSize = pageSize;
+    pagination.current = 1;
+    fetchData(1);
+  };
+
+  const onSorterChange = (field: string, order: string) => {
+    sortParams.sortField = field;
+    sortParams.sortOrder = order;
+    fetchData(1);
+  };
+
+  const onSelectionChange = (rows: any[]) => {
+    selectedRows.value = rows.map((r: any) => r.id);
+  };
+
+  const handleToggle = async (record: any, field: string, value: boolean) => {
+    try {
+      await axios.post(`${props.apiPrefix}/${record.id}/toggle`, { field, value });
+      Message.success('状态已更新');
+      fetchData(pagination.current);
+    } catch {
+      Message.error('状态更新失败');
+      fetchData(pagination.current);
+    }
+  };
+
+  // ====== 操作处理 ======
+
+  /** 头部操作 */
+  const handleHeaderAction = (action: any) => {
+    if (action.key === 'create' || action.key === 'add') {
+      emit('add');
+      return;
+    }
+    handleActionByMode(action, null);
+  };
+
+  /** 行操作 */
+  const handleRowAction = (action: any, record: any) => {
+    if (action.confirm) return; // popconfirm will handle
+    handleActionByMode(action, record);
+  };
+
+  const handleRowActionConfirm = async (action: any, record: any) => {
+    if (action.key === 'delete') {
+      try {
+        await axios.delete(`${props.apiPrefix}/${record.id}`);
+        Message.success('删除成功');
+        fetchData(pagination.current);
+      } catch {
+        Message.error('删除失败');
+      }
+    } else {
+      handleActionByMode(action, record);
+    }
+  };
+
+  /** 批量操作 */
+  const handleBulkAction = async (action: any) => {
+    if (action.confirm) {
+      Message.warning(`确定要执行「${action.label}」吗？（已选 ${selectedRows.value.length} 条）`);
+    }
+    if (action.key === 'batch-delete' || action.key === 'batch-destroy') {
+      try {
+        await axios.post(`${props.apiPrefix}/batch-destroy`, { ids: selectedRows.value });
+        Message.success('批量删除成功');
+        selectedRows.value = [];
+        fetchData(pagination.current);
+      } catch {
+        Message.error('批量删除失败');
+      }
+    } else {
+      emit('action', action, selectedRows.value);
+    }
+  };
+
+  /** 根据操作模式分发处理 */
+  const handleActionByMode = async (action: any, record: any) => {
+    const mode = action.mode || 'page';
+
+    if (mode === 'page') {
+      // 新页面跳转
+      if (action.route) {
+        // router.push({ name: action.route, params: record ? { id: record.id } : {} });
+        emit('action', action, record);
+      } else {
+        emit('action', action, record);
+      }
+    } else if (mode === 'modal') {
+      await openModal(action, record);
+    } else if (mode === 'drawer') {
+      await openDrawer(action, record);
+    }
+  };
+
+  /** 打开 Modal 操作 */
+  const openModal = async (action: any, record: any) => {
+    modalActionRecord.value = record;
+    modalProps.value = action.modalProps || {};
+    modalTitle.value = action.label;
+    modalFields.value = [];
+    Object.keys(modalFormData).forEach((key) => delete modalFormData[key]);
+
+    modalLoading.value = true;
+    try {
+      // 获取表单 Schema
+      const context = record ? 'update' : 'create';
+      const { data: resp } = await axios.get(`${props.apiPrefix}/form-schema`, {
+        params: { context },
+      });
+      const result = resp?.data?.data || resp?.data || {};
+      const schema = result.schema || result;
+      modalFields.value = schema.fields || [];
+
+      // 填充数据
+      if (record) {
+        modalFields.value.forEach((f) => {
+          modalFormData[f.key] = record[f.key] ?? f.default ?? '';
+        });
+      } else {
+        modalFields.value.forEach((f) => {
+          if (f.default !== undefined) modalFormData[f.key] = f.default;
+        });
+      }
+      modalVisible.value = true;
+    } catch {
+      Message.error('获取表单失败');
+    } finally {
+      modalLoading.value = false;
+    }
+  };
+
+  const handleModalSubmit = async () => {
+    try {
+      const valid = await modalFormRef.value?.validate();
+      if (valid) return;
+
+      if (modalActionRecord.value) {
+        await axios.put(`${props.apiPrefix}/${modalActionRecord.value.id}`, modalFormData);
+        Message.success('更新成功');
+      } else {
+        await axios.post(props.apiPrefix, modalFormData);
+        Message.success('创建成功');
+      }
+
+      modalVisible.value = false;
+      fetchData(pagination.current);
+    } catch (err: any) {
+      Message.error(err?.response?.data?.msg || '操作失败');
+    }
+  };
+
+  /** 打开 Drawer 操作 */
+  const openDrawer = async (action: any, record: any) => {
+    drawerActionRecord.value = record;
+    drawerProps.value = action.drawerProps || {};
+    drawerTitle.value = action.label;
+    drawerFields.value = [];
+    Object.keys(drawerFormData).forEach((key) => delete drawerFormData[key]);
+
+    drawerLoading.value = true;
+    try {
+      const context = record ? 'update' : 'create';
+      const { data: resp } = await axios.get(`${props.apiPrefix}/form-schema`, {
+        params: { context },
+      });
+      const result = resp?.data?.data || resp?.data || {};
+      const schema = result.schema || result;
+      drawerFields.value = schema.fields || [];
+
+      if (record) {
+        drawerFields.value.forEach((f) => {
+          drawerFormData[f.key] = record[f.key] ?? f.default ?? '';
+        });
+      } else {
+        drawerFields.value.forEach((f) => {
+          if (f.default !== undefined) drawerFormData[f.key] = f.default;
+        });
+      }
+      drawerVisible.value = true;
+    } catch {
+      Message.error('获取表单失败');
+    } finally {
+      drawerLoading.value = false;
+    }
+  };
+
+  const handleDrawerSubmit = async () => {
+    try {
+      const valid = await drawerFormRef.value?.validate();
+      if (valid) return;
+
+      if (drawerActionRecord.value) {
+        await axios.put(`${props.apiPrefix}/${drawerActionRecord.value.id}`, drawerFormData);
+        Message.success('更新成功');
+      } else {
+        await axios.post(props.apiPrefix, drawerFormData);
+        Message.success('创建成功');
+      }
+
+      drawerVisible.value = false;
+      fetchData(pagination.current);
+    } catch (err: any) {
+      Message.error(err?.response?.data?.msg || '操作失败');
+    }
+  };
+
+  // ====== Modal/Drawer 组件映射 ======
+  const getModalComponent = (field: any) => getFormComponent(field.type || 'text');
+  const getDrawerComponent = (field: any) => getFormComponent(field.type || 'text');
+
+  const getFormComponent = (type: string) => {
+    const map: Record<string, string> = {
+      text: 'a-input',
+      password: 'a-input-password',
+      email: 'a-input',
+      url: 'a-input',
+      number: 'a-input-number',
+      textarea: 'a-textarea',
+      select: 'a-select',
+      radio: 'a-radio-group',
+      checkbox: 'a-checkbox-group',
+      switch: 'a-switch',
+      slider: 'a-slider',
+      rate: 'a-rate',
+      color: 'a-color-picker',
+      tags: 'a-input-tag',
+      treeSelect: 'a-tree-select',
+      autoComplete: 'a-auto-complete',
+      cascader: 'a-cascader',
+      date: 'a-date-picker',
+      datetime: 'a-date-picker',
+      time: 'a-time-picker',
+      dateRange: 'a-range-picker',
+      year: 'a-date-picker',
+      month: 'a-date-picker',
+      image: 'Upload',
+      images: 'Upload',
+      file: 'Upload',
+      files: 'Upload',
+      editor: 'a-textarea',
+      code: 'a-textarea',
+      icon: 'a-input',
+      hidden: 'a-input',
+    };
+    return map[type] || 'a-input';
+  };
+
+  const getModalFieldProps = (field: any) => getFieldProps(field);
+  const getDrawerFieldProps = (field: any) => getFieldProps(field);
+
+  const getFieldProps = (field: any) => {
+    const type = field.type || 'text';
+    const props: any = {};
+
+    if (field.placeholder) props.placeholder = field.placeholder;
+    if (field.disabled) props.disabled = field.disabled;
+    if (field.readonly) props.readonly = field.readonly;
+    if (field.maxLength) props.maxLength = field.maxLength;
+    if (field.minLength) props.minLength = field.minLength;
+    if (field.clearable !== false) props.allowClear = true;
+
+    if (type === 'text' || type === 'email' || type === 'url') {
+      if (field.prefix) props.prefix = field.prefix;
+      if (field.suffix) props.suffix = field.suffix;
+      if (field.prepend) props.addonBefore = field.prepend;
+      if (field.append) props.addonAfter = field.append;
+      if (field.maxLength) props.showWordLimit = true;
+    }
+    if (type === 'textarea') {
+      props.autoSize = { minRows: field.rows || 3 };
+      if (field.maxLength) props.showWordLimit = true;
+    }
+    if (type === 'number') {
+      props.min = field.min ?? undefined;
+      props.max = field.max ?? undefined;
+      if (field.step) props.step = field.step;
+      if (field.precision) props.precision = field.precision;
+    }
+    if (type === 'select' || type === 'radio' || type === 'checkbox') {
+      if (field.options) {
+        props.options = Object.entries(field.options).map(([v, l]) => ({
+          value: v,
+          label: l as string,
+        }));
+      }
+      if (field.multiple) props.multiple = true;
+      if (field.searchable) props.allowSearch = true;
+      if (field.allowCreate) props.allowCreate = true;
+    }
+    if (type === 'switch') props.type = 'round';
+    if (type === 'rate') {
+      if (field.rateCount) props.count = field.rateCount;
+      if (field.showScore !== false) props.showText = true;
+    }
+    if (type === 'date') props.format = field.format || 'YYYY-MM-DD';
+    if (type === 'datetime') {
+      props.showTime = true;
+      props.format = field.format || 'YYYY-MM-DD HH:mm:ss';
+    }
+    if (type === 'slider') {
+      props.min = field.min ?? 0;
+      props.max = field.max ?? 100;
+      if (field.step) props.step = field.step;
+    }
+    if (type === 'color') props.format = field.colorMode || 'hex';
+    if (['image', 'images', 'file', 'files'].includes(type)) {
+      props.limit = ['image', 'file'].includes(type) ? 1 : (field.maxUpload || 10);
+      props.type = ['file', 'files'].includes(type) ? 'file' : 'image';
+      if (field.accept) props.accept = field.accept.join(',');
+    }
+
+    return props;
+  };
+
+  const getConfirmText = (action: any, record: any) => {
+    const text = action.confirmText || '确定要执行此操作吗？';
+    return text.replace('{count}', String(selectedRows.value.length));
+  };
+
+  // ====== 辅助方法 ======
+  const getBadgeColor = (value: any, col: any) => {
+    const colors = col._displayOptions?.colors || {};
+    return colors[String(value)] || 'gray';
+  };
+
+  const getBadgeVariant = (col: any) => col._displayOptions?.variant || 'light';
+
+  const getBadgeText = (value: any, col: any) => {
+    const colors = col._displayOptions?.colors || {};
+    return colors[String(value)] || value ?? '-';
+  };
+
+  const parseTags = (value: any, col: any) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') return value.split(col._displayOptions?.separator || ', ').filter(Boolean);
+    return value ? [value] : [];
+  };
+
+  const getProgressStatus = (value: number, col: any) => {
+    const colors = col._displayOptions?.colors || [];
+    for (const [threshold, color] of colors) {
+      if (value >= threshold) return color;
+    }
+    if (value < 30) return 'danger';
+    if (value < 70) return 'warning';
+    return 'success';
+  };
+
+  const getBarColor = (value: number, col: any) => {
+    if (value < 30) return '#f53f3f';
+    if (value < 70) return '#ff7d00';
+    return '#00b42a';
+  };
+
+  const getDotStatus = (value: any, col: any) => {
+    const colors = col._displayOptions?.colors || {};
+    const colorMap: Record<string, string> = {
+      green: 'success',
+      red: 'danger',
+      orange: 'warning',
+      blue: 'processing',
+      gray: 'normal',
+    };
+    return colorMap[colors[String(value)] || 'gray'] || 'normal';
+  };
+
+  const getDotText = (value: any) => value ? '是' : '否';
+
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return '-';
+    try {
+      return new Date(dateStr).toLocaleString('zh-CN', { hour12: false });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const formatDefault = (value: any, col: any) => {
+    if (value === null || value === undefined || value === '') {
+      return col._default ?? '-';
+    }
+    let result = String(value);
+    if (col._limit && result.length > col._limit) {
+      result = result.slice(0, col._limit) + '...';
+    }
+    if (col._decimals !== undefined && !isNaN(Number(value))) {
+      result = Number(value).toFixed(col._decimals);
+    }
+    if (col._prefix) result = col._prefix + result;
+    if (col._suffix) result = result + col._suffix;
+    return result;
+  };
+
+  defineExpose({ fetchData, filterValues });
+</script>
+
+<style scoped lang="less">
+  .dynamic-table {
+    .filter-card {
+      :deep(.arco-card-body) {
+        padding: 16px 16px 4px;
+      }
+    }
+  }
+</style>

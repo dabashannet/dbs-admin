@@ -228,6 +228,40 @@ class Form
         return $this->field($key, $label)->type('icon');
     }
 
+    // ==================== 高级字段类型 ====================
+
+    /**
+     * 键值对输入（类似 Filament KeyValue）
+     */
+    public function keyValue(string $key, string $label = '键值对'): self
+    {
+        return $this->field($key, $label)->type('keyValue');
+    }
+
+    /**
+     * 可重复项构建器（类似 Filament Repeater）
+     */
+    public function repeater(string $key, string $label = '重复项'): self
+    {
+        return $this->field($key, $label)->type('repeater');
+    }
+
+    /**
+     * Markdown 编辑器
+     */
+    public function markdownEditor(string $key, string $label): self
+    {
+        return $this->field($key, $label)->type('markdown');
+    }
+
+    /**
+     * 切换按钮组（类似 Filament ToggleButtons）
+     */
+    public function toggleButtons(string $key, string $label): self
+    {
+        return $this->field($key, $label)->type('toggleButtons');
+    }
+
     // ==================== 链式方法快捷 ====================
 
     public function type(string $type): self

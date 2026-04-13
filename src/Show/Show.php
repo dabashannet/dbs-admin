@@ -205,6 +205,29 @@ class Show
         return $field;
     }
 
+    /**
+     * 图标展示
+     */
+    public function icon(string $key, string $label): self
+    {
+        $field = new ShowField($key, $label);
+        $field->displayType = 'icon';
+        $this->fields[] = $field;
+        return $this;
+    }
+
+    /**
+     * 可重复项展示（嵌套数据）
+     */
+    public function repeatable(string $key, string $label, array $schema = []): self
+    {
+        $field = new ShowField($key, $label);
+        $field->displayType = 'repeatable';
+        $field->displayOptions = ['schema' => $schema];
+        $this->fields[] = $field;
+        return $this;
+    }
+
     // ==================== 快捷方法（兼容旧 API） ====================
 
     /**

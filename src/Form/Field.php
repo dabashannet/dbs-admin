@@ -54,6 +54,25 @@ class Field
     protected int $maxUpload = 10;           // 最大上传数（多图）
     protected ?string $iconPrefix = 'icon';  // 图标前缀
 
+    // ==================== 高级字段类型 ====================
+
+    protected array $keyValueKeyLabel = [];   // KeyValue 键名标签
+    protected array $keyValueValueLabel = []; // KeyValue 键值标签
+    protected bool $keyValueReorderable = false;  // KeyValue 是否可排序
+    protected array $repeaterSchema = [];      // Repeater 子字段定义
+    protected string $repeaterCollapsibleLabel = '';  // Repeater 折叠标签
+    protected bool $repeaterCollapsible = false;     // Repeater 是否可折叠
+    protected int $repeaterMinItems = 0;       // Repeater 最小项数
+    protected int $repeaterMaxItems = 0;       // Repeater 最大项数
+    protected bool $repeaterCloneable = true;  // Repeater 是否可克隆
+    protected bool $repeaterReorderable = true; // Repeater 是否可排序
+    protected string $repeaterItemLabel = '项'; // Repeater 项标签
+    protected ?string $markdownEditorHeight = null;  // Markdown 编辑器高度
+    protected array $toggleButtonsOptions = [];  // 切换按钮选项
+    protected bool $toggleButtonsMultiple = false; // 切换按钮多选
+    protected ?string $markdownUploadDisk = 'public';  // Markdown 上传磁盘
+    protected ?string $markdownUploadPath = 'markdown'; // Markdown 上传路径
+
     public function __construct(string $key, string $title, string $type = 'text')
     {
         $this->key = $key;
@@ -367,6 +386,158 @@ class Field
         return $this;
     }
 
+    // ==================== 键值对输入 ====================
+
+    /**
+     * 键值对输入（类似 Filament KeyValue）
+     */
+    public function keyValue(string $key, string $label): self
+    {
+        $field = new self($key, $label, 'keyValue');
+        $this->key = $key;
+        $this->title = $label;
+        $this->type = 'keyValue';
+        return $this;
+    }
+
+    public function keyValueLabels(string $keyLabel, string $valueLabel): self
+    {
+        $this->keyValueKeyLabel = ['label' => $keyLabel];
+        $this->keyValueValueLabel = ['label' => $valueLabel];
+        return $this;
+    }
+
+    public function keyValueReorderable(bool $value = true): self
+    {
+        $this->keyValueReorderable = $value;
+        return $this;
+    }
+
+    // ==================== 可重复项构建器（类似 Filament Repeater） ====================
+
+    /**
+     * 可重复项构建器（嵌套字段数组）
+     */
+    public function repeater(string $key, string $label): self
+    {
+        $field = new self($key, $label, 'repeater');
+        $this->key = $key;
+        $this->title = $label;
+        $this->type = 'repeater';
+        return $this;
+    }
+
+    public function schema(array $fields): self
+    {
+        $this->repeaterSchema = $fields;
+        return $this;
+    }
+
+    public function collapsible(string $label = '', bool $value = true): self
+    {
+        $this->repeaterCollapsible = $value;
+        if ($label) {
+            $this->repeaterCollapsibleLabel = $label;
+        }
+        return $this;
+    }
+
+    public function minItems(int $count): self
+    {
+        $this->repeaterMinItems = $count;
+        return $this;
+    }
+
+    public function maxItems(int $count): self
+    {
+        $this->repeaterMaxItems = $count;
+        return $this;
+    }
+
+    public function cloneable(bool $value = true): self
+    {
+        $this->repeaterCloneable = $value;
+        return $this;
+    }
+
+    public function reorderable(bool $value = true): self
+    {
+        $this->repeaterReorderable = $value;
+        return $this;
+    }
+
+    public function itemLabel(string $label): self
+    {
+        $this->repeaterItemLabel = $label;
+        return $this;
+    }
+
+    public function addItemLabel(string $label): self
+    {
+        $this->extra['addItemLabel'] = $label;
+        return $this;
+    }
+
+    // ==================== Markdown 编辑器 ====================
+
+    /**
+     * Markdown 编辑器
+     */
+    public function markdownEditor(string $key, string $label): self
+    {
+        $field = new self($key, $label, 'markdown');
+        $this->key = $key;
+        $this->title = $label;
+        $this->type = 'markdown';
+        return $this;
+    }
+
+    public function markdownHeight(string $height): self
+    {
+        $this->markdownEditorHeight = $height;
+        return $this;
+    }
+
+    public function markdownUploadDisk(string $disk): self
+    {
+        $this->markdownUploadDisk = $disk;
+        return $this;
+    }
+
+    public function markdownUploadPath(string $path): self
+    {
+        $this->markdownUploadPath = $path;
+        return $this;
+    }
+
+    // ==================== 切换按钮组（类似 Filament ToggleButtons） ====================
+
+    /**
+     * 切换按钮组
+     */
+    public function toggleButtons(string $key, string $label): self
+    {
+        $field = new self($key, $label, 'toggleButtons');
+        $this->key = $key;
+        $this->title = $label;
+        $this->type = 'toggleButtons';
+        return $this;
+    }
+
+    public function toggleButtonsOptions(array $options): self
+    {
+        $this->toggleButtonsOptions = $options;
+        return $this;
+    }
+
+    public function toggleButtonsMultiple(bool $value = true): self
+    {
+        $this->toggleButtonsMultiple = $value;
+        return $this;
+    }
+
+    // ==================== 切换按钮组/Markdown 结束 ====================
+
     // ==================== 图标 ====================
 
     public function iconPrefix(string $prefix): self
@@ -497,6 +668,22 @@ class Field
             'path' => in_array($this->type, ['image', 'file', 'images']) ? $this->uploadPath : null,
             'accept' => !empty($this->uploadAccept) ? $this->uploadAccept : null,
             'maxUpload' => $this->type === 'images' ? $this->maxUpload : null,
+            'keyValueKeyLabel' => $this->type === 'keyValue' ? ($this->keyValueKeyLabel['label'] ?? '键') : null,
+            'keyValueValueLabel' => $this->type === 'keyValue' ? ($this->keyValueValueLabel['label'] ?? '值') : null,
+            'keyValueReorderable' => $this->type === 'keyValue' ? $this->keyValueReorderable : null,
+            'repeaterSchema' => $this->type === 'repeater' && !empty($this->repeaterSchema) ? $this->repeaterSchema : null,
+            'repeaterCollapsible' => $this->type === 'repeater' ? $this->repeaterCollapsible : null,
+            'repeaterCollapsibleLabel' => $this->type === 'repeater' && $this->repeaterCollapsibleLabel ? $this->repeaterCollapsibleLabel : null,
+            'repeaterMinItems' => $this->type === 'repeater' && $this->repeaterMinItems > 0 ? $this->repeaterMinItems : null,
+            'repeaterMaxItems' => $this->type === 'repeater' && $this->repeaterMaxItems > 0 ? $this->repeaterMaxItems : null,
+            'repeaterCloneable' => $this->type === 'repeater' ? $this->repeaterCloneable : null,
+            'repeaterReorderable' => $this->type === 'repeater' ? $this->repeaterReorderable : null,
+            'repeaterItemLabel' => $this->type === 'repeater' ? $this->repeaterItemLabel : null,
+            'markdownHeight' => $this->type === 'markdown' ? ($this->markdownEditorHeight ?? '300px') : null,
+            'markdownUploadDisk' => $this->type === 'markdown' ? $this->markdownUploadDisk : null,
+            'markdownUploadPath' => $this->type === 'markdown' ? $this->markdownUploadPath : null,
+            'toggleButtonsOptions' => $this->type === 'toggleButtons' && !empty($this->toggleButtonsOptions) ? $this->toggleButtonsOptions : null,
+            'toggleButtonsMultiple' => $this->type === 'toggleButtons' ? $this->toggleButtonsMultiple : null,
         ], fn($v) => $v !== null);
     }
 }

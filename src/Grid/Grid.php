@@ -15,6 +15,8 @@ use Illuminate\Http\Request;
  */
 class Grid
 {
+    use HasImportExport;
+
     protected Builder $query;
     protected array $columns = [];
     protected array $filters = [];

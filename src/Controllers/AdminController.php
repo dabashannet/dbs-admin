@@ -5,6 +5,7 @@ namespace Dabashan\DbsAdmin\Controllers;
 use Dabashan\DbsAdmin\Grid\Grid;
 use Dabashan\DbsAdmin\Grid\Action;
 use Dabashan\DbsAdmin\Form\Form;
+use Dabashan\DbsAdmin\Notifications\Notification;
 use Dabashan\DbsAdmin\Show\Show;
 use Dabashan\DbsAdmin\Traits\HasApiResponse;
 use Illuminate\Http\Request;
@@ -56,7 +57,17 @@ abstract class AdminController extends Controller
 
     public function index(Request $request)
     {
-        return $this->success($this->grid()->resolve($request));
+        $data = $this->grid()->resolve($request);
+        // 附加 Session 通知
+        $data['notifications'] = Notification::pull();
+
+        // 如果模型支持软删除，附加软删除计数
+        $model = new $this->model;
+        if (method_exists($model, 'bootSoftDeletes')) {
+            $data['trashedCount'] = $this->model::onlyTrashed()->count();
+        }
+
+        return $this->success($data);
     }
 
     public function store(Request $request)
@@ -98,11 +109,21 @@ abstract class AdminController extends Controller
     {
         $ids = is_array($id) ? $id : explode(',', (string) $id);
         $ids = array_filter($ids, fn($v) => is_numeric($v) && $v > 0);
+
         if (empty($ids)) {
             return $this->fail('无效的 ID 参数', 422);
         }
+
         $count = count($ids);
-        $this->model::destroy($ids);
+        $model = new $this->model;
+
+        // 支持软删除的模型使用软删除
+        if (method_exists($model, 'bootSoftDeletes')) {
+            $this->model::destroy($ids);
+        } else {
+            $this->model::destroy($ids);
+        }
+
         return $this->success([], "已删除 {$count} 条记录");
     }
 
@@ -198,9 +219,99 @@ abstract class AdminController extends Controller
         return $this->success(['id' => $id, 'field' => $field, 'value' => $value], '状态已更新');
     }
 
+    // ==================== 复制 ====================
+
+    /**
+     * 复制记录（基于原记录创建新记录）
+     */
+    public function replicate($id)
+    {
+        $original = $this->model::findOrFail($id);
+        $data = $original->toArray();
+
+        // 移除主键和时间戳
+        unset($data['id'], $data['created_at'], $data['updated_at']);
+        // 软删除字段
+        if (isset($data['deleted_at'])) {
+            unset($data['deleted_at']);
+        }
+
+        $newModel = $this->model::create($data);
+        $this->afterSave(request(), $newModel);
+
+        return $this->success($newModel, '复制成功');
+    }
+
+    // ==================== 软删除恢复 ====================
+
+    /**
+     * 恢复软删除的记录
+     */
+    public function restore($id)
+    {
+        $ids = is_array($id) ? $id : explode(',', (string) $id);
+        $ids = array_filter($ids, fn($v) => is_numeric($v) && $v > 0);
+
+        if (empty($ids)) {
+            return $this->fail('无效的 ID 参数', 422);
+        }
+
+        $count = $this->model::onlyTrashed()->whereIn('id', $ids)->restore();
+
+        return $this->success([], "已恢复 {$count} 条记录");
+    }
+
+    // ==================== 强制删除 ====================
+
+    /**
+     * 强制删除记录（软删除模式下永久删除）
+     */
+    public function forceDestroy($id)
+    {
+        $ids = is_array($id) ? $id : explode(',', (string) $id);
+        $ids = array_filter($ids, fn($v) => is_numeric($v) && $v > 0);
+
+        if (empty($ids)) {
+            return $this->fail('无效的 ID 参数', 422);
+        }
+
+        $count = count($ids);
+        $this->model::onlyTrashed()->whereIn('id', $ids)->forceDelete();
+
+        return $this->success([], "已永久删除 {$count} 条记录");
+    }
+
+    // ==================== 导入导出 ====================
+
+    /**
+     * 导出处理（子类可覆写）
+     */
+    public function export(Request $request)
+    {
+        return $this->fail('导出功能请在控制器中实现 export() 方法', 501);
+    }
+
+    /**
+     * 导入处理（子类可覆写）
+     */
+    public function import(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:xlsx,xls,csv|max:10240',
+        ]);
+
+        return $this->fail('导入功能请在控制器中实现 import() 方法', 501);
+    }
+
     // ==================== 钩子 ====================
 
-    protected function afterSave(Request $_request, mixed $_model): void {}
+    /**
+     * 保存后钩子（子类可覆写）
+     */
+    protected function afterSave(Request $request, $model): void
+    {
+        // 默认不做任何操作
+    }
 
     protected function formatDbError(\Illuminate\Database\QueryException $e): string
     {

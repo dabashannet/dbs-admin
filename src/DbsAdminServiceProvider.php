@@ -2,10 +2,12 @@
 
 namespace Dabashan\DbsAdmin;
 
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Dabashan\DbsAdmin\Commands\MakeAdminCommand;
 use Dabashan\DbsAdmin\Commands\MakePluginCommand;
 use Dabashan\DbsAdmin\Commands\MakePluginPageCommand;
+use Dabashan\DbsAdmin\Controllers\CodeGeneratorController;
 
 class DbsAdminServiceProvider extends ServiceProvider
 {
@@ -29,5 +31,15 @@ class DbsAdminServiceProvider extends ServiceProvider
                 MakePluginPageCommand::class,
             ]);
         }
+
+        // 注册代码生成器路由
+        Route::prefix('admin')
+            ->middleware('api')
+            ->group(function () {
+                Route::get('/code-generator', [CodeGeneratorController::class, 'index']);
+                Route::get('/code-generator/config', [CodeGeneratorController::class, 'generatorConfig']);
+                Route::post('/code-generator/preview', [CodeGeneratorController::class, 'preview']);
+                Route::post('/code-generator/generate', [CodeGeneratorController::class, 'generate']);
+            });
     }
 }

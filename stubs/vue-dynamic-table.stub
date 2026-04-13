@@ -353,7 +353,7 @@
 
 <script lang="ts" setup>
   import { ref, reactive, computed } from 'vue';
-  import { Message } from '@arco-design/web-vue';
+  import { Message, Notification } from '@arco-design/web-vue';
   import axios from 'axios';
   import Upload from '@/components/Upload/index.vue';
 
@@ -505,6 +505,18 @@
       pagination.current = result.current_page || 1;
 
       if (result.per_page_options) pagination.pageSizeOptions = result.per_page_options;
+
+      // 显示后端通知
+      if (result.notifications && Array.isArray(result.notifications)) {
+        result.notifications.forEach((n: any) => {
+          Notification[n.type]?.({
+            title: n.title || '通知',
+            content: n.body,
+            duration: n.duration ?? 3000,
+            closable: n.closable ?? true,
+          });
+        });
+      }
 
       emit('loaded', result);
     } catch (err: any) {

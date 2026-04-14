@@ -1,8 +1,7 @@
 <?php
 
-namespace App\Admin\Controllers;
+namespace Dabashan\DbsAdmin\Controllers;
 
-use Dabashan\DbsAdmin\Controllers\AdminController;
 use Dabashan\DbsAdmin\Form\Form;
 use Dabashan\DbsAdmin\Grid\Grid;
 use Dabashan\DbsAdmin\Traits\HasApiResponse;
@@ -236,10 +235,10 @@ class CodeGeneratorController extends AdminController
         $gridColumns = $config['grid_columns'] ?? [];
 
         // 生成 Controller 代码
-        $controllerCode = $this->generateControllerCode($name, $controllerName, $modelName, $config['type'], $fields, $gridColumns);
+        $controllerCode = $this->generateControllerCode($name, $controllerName, $modelName, $config['type'], $fields, $gridColumns, $config['plugin'] ?? null);
 
         // 生成 Model 代码
-        $modelCode = $this->generateModelCode($modelName, $tableName, $config['fillable'] ?? [], $config['type']);
+        $modelCode = $this->generateModelCode($modelName, $tableName, $config['fillable'] ?? [], $config['type'], $config['plugin'] ?? null);
 
         // 生成迁移代码
         $migrationCode = $this->generateMigrationCode($tableName, $fields);
@@ -253,9 +252,44 @@ class CodeGeneratorController extends AdminController
         // 生成文件列表
         $files = $this->getGeneratedFiles($name, $kebabName, $parent, $config['type'], $config['plugin'] ?? null, $tableName);
 
+        // 插件模式额外生成 plugin.json、服务提供者和业务端页面
+        // 注意：不再单独生成业务端路由文件，因为动态插件加载器（dynamic-plugin-loader.ts）
+        // 已经从 API 获取插件菜单并动态注册路由，静态路由文件会导致冗余和冲突
+        if ($config['type'] === 'plugin') {
+            $plugin = $config['plugin'] ?? '';
+            $pluginKebab = Str::kebab($plugin);
+            $pluginJson = $this->generatePluginJson($plugin, $name, $tableName, $parent, $kebabName, $icon, $order);
+            $serviceProvider = $this->generatePluginServiceProvider($plugin, $name, $parent, $kebabName, $icon, $order);
+            $businessVue = $this->generateBusinessVueCode($pluginKebab, $kebabName, $name);
+
+            $pluginFiles = [
+                'plugin_json' => [
+                    'path' => "plugins/{$pluginKebab}/plugin.json",
+                    'content' => $pluginJson,
+                ],
+                'service_provider' => [
+                    'path' => "plugins/{$pluginKebab}/PluginServiceProvider.php",
+                    'content' => $serviceProvider,
+                ],
+                'business_vue' => [
+                    'path' => "web/src/views/plugin/{$pluginKebab}/{$kebabName}/index.vue",
+                    'content' => $businessVue,
+                ],
+            ];
+
+            $files[] = "plugins/{$pluginKebab}/plugin.json";
+            $files[] = "plugins/{$pluginKebab}/PluginServiceProvider.php";
+            $files[] = "web/src/views/plugin/{$pluginKebab}/{$kebabName}/index.vue";
+        }
+
+        // 迁移路径：插件放 plugin 自己的 database/migrations，核心放全局 database/migrations
+        $migrationPath = $config['type'] === 'plugin'
+            ? "plugins/" . Str::kebab($config['plugin'] ?? '') . "/database/migrations/xxxx_xx_xx_xx_create_{$tableName}_table.php"
+            : "database/migrations/xxxx_xx_xx_xx_create_{$tableName}_table.php";
+
         return [
             'files' => $files,
-            'preview' => [
+            'preview' => array_merge([
                 'controller' => [
                     'path' => $this->getControllerPath($name, $config['type'], $config['plugin'] ?? null),
                     'content' => $controllerCode,
@@ -265,7 +299,7 @@ class CodeGeneratorController extends AdminController
                     'content' => $modelCode,
                 ],
                 'migration' => [
-                    'path' => "database/migrations/xxxx_xx_xx_xx_create_{$tableName}_table.php",
+                    'path' => $migrationPath,
                     'content' => $migrationCode,
                 ],
                 'vue' => [
@@ -276,18 +310,18 @@ class CodeGeneratorController extends AdminController
                     'path' => $this->getRouterPath($parent, $kebabName, $config['type']),
                     'content' => $routerCode,
                 ],
-            ],
+            ], $pluginFiles),
         ];
     }
 
-    protected function generateControllerCode(string $name, string $controllerName, string $modelName, string $type, array $fields, array $gridColumns): string
+    protected function generateControllerCode(string $name, string $controllerName, string $modelName, string $type, array $fields, array $gridColumns, ?string $plugin = null): string
     {
         $namespace = $type === 'plugin'
-            ? "Plugins\\{$name}\\Admin\\Controllers"
+            ? "Plugins\\{$plugin}\\Admin\\Controllers"
             : 'App\\Admin\\Controllers';
 
         $modelNamespace = $type === 'plugin'
-            ? "Plugins\\{$name}\\Models\\{$modelName}"
+            ? "Plugins\\{$plugin}\\Models\\{$modelName}"
             : "App\\Admin\\Models\\{$modelName}";
 
         $gridColumnsCode = $this->formatGridColumns($gridColumns, $fields);
@@ -377,9 +411,9 @@ PHP;
         return implode("\n            ", $lines);
     }
 
-    protected function generateModelCode(string $modelName, string $tableName, array $fillable, string $type): string
+    protected function generateModelCode(string $modelName, string $tableName, array $fillable, string $type, ?string $plugin = null): string
     {
-        $namespace = $type === 'plugin' ? "Plugins\\{$modelName}\\Models" : 'App\\Admin\\Models';
+        $namespace = $type === 'plugin' ? "Plugins\\{$plugin}\\Models" : 'App\\Admin\\Models';
         $fillableCode = empty($fillable) ? '//' : "'" . implode("',\n        '", $fillable) . "',";
         $baseModel = $type === 'plugin' ? 'Illuminate\\Database\\Eloquent\\Model' : 'Dabashan\\DbsAdmin\\Models\\BaseAdminModel';
 
@@ -467,36 +501,180 @@ VUE;
         $parentStudly = Str::studly($parent);
 
         return <<<TS
-import {{ DEFAULT_LAYOUT }} from '../base';
-import {{ AppRouteRecordRaw }} from '../types';
+import { DEFAULT_LAYOUT } from '../base';
+import { AppRouteRecordRaw } from '../types';
 
-const {$name}Route: AppRouteRecordRaw = {{
+const {$name}Route: AppRouteRecordRaw = {
   path: '/{$parent}',
   name: '{$parentStudly}Parent',
   component: DEFAULT_LAYOUT,
-  meta: {{
+  meta: {
     locale: 'menu.{$parent}',
     icon: 'icon-apps',
     requiresAuth: true,
     order: {$order},
-  }},
+  },
   children: [
-    {{
+    {
       path: '{$kebabName}',
       name: '{$name}List',
       component: () => import('@/views/{$parent}/{$kebabName}/index.vue'),
-      meta: {{
+      meta: {
         locale: 'menu.{$parent}.{$kebabName}',
         requiresAuth: true,
         roles: ['*'],
         permissions: ['{$parent}.{$kebabName}'],
-      }},
-    }},
+      },
+    },
   ],
-}};
+};
 
 export default {$name}Route;
 TS;
+    }
+
+    /**
+     * 生成插件 manifest（plugin.json）
+     */
+    protected function generatePluginJson(string $plugin, string $name, string $tableName, string $parent, string $kebabName, string $icon, int $order): string
+    {
+        $pluginStudly = Str::studly($plugin);
+        $pluginKebab = Str::kebab($plugin);
+        $json = [
+            'name' => $pluginKebab,
+            'title' => "{$pluginStudly} 插件",
+            'description' => "{$name} 管理插件",
+            'version' => '1.0.0',
+            'author' => 'Code Generator',
+            'enabled' => true,
+            'icon' => $icon,
+            'type' => 'local',
+            'requires' => [],
+            'providers' => [
+                "Plugins\\\\{$pluginStudly}\\\\PluginServiceProvider",
+            ],
+            'admin_controllers' => [
+                "Plugins\\\\{$pluginStudly}\\\\Admin\\\\Controllers\\\\{$name}Controller",
+            ],
+            'menus' => [
+                [
+                    'title' => "{$pluginStudly}",
+                    'icon' => $icon,
+                    'uri' => "{$parent}/{$kebabName}",
+                    'children' => [
+                        [
+                            'title' => "{$name}列表",
+                            'uri' => "{$parent}/{$kebabName}",
+                        ],
+                    ],
+                ],
+            ],
+            'permissions' => [
+                "{$parent}.{$kebabName}",
+            ],
+        ];
+
+        return json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    }
+
+    /**
+     * 生成插件服务提供者
+     */
+    protected function generatePluginServiceProvider(string $plugin, string $name, string $parent, string $kebabName, string $icon, int $order): string
+    {
+        $pluginStudly = Str::studly($plugin);
+        $controllerClass = "Plugins\\\\{$pluginStudly}\\\\Admin\\\\Controllers\\\\{$name}Controller";
+        $routePath = "/plugin/{$plugin}";
+
+        return <<<PHP
+<?php
+
+namespace Plugins\\{$pluginStudly};
+
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\ServiceProvider;
+use Dabashan\DbsAdmin\Facades\Admin;
+
+class PluginServiceProvider extends ServiceProvider
+{
+    public function boot(): void
+    {
+        // 注册后台路由
+        Route::prefix('admin')
+            ->middleware(['web', 'auth:sanctum'])
+            ->group(function () {
+                Admin::route()->get('{$parent}/{$kebabName}', [{$controllerClass}::class, 'index']);
+                Admin::route()->post('{$parent}/{$kebabName}', [{$controllerClass}::class, 'store']);
+                Admin::route()->get('{$parent}/{$kebabName}/{id}', [{$controllerClass}::class, 'show']);
+                Admin::route()->put('{$parent}/{$kebabName}/{id}', [{$controllerClass}::class, 'update']);
+                Admin::route()->delete('{$parent}/{$kebabName}/{id}', [{$controllerClass}::class, 'destroy']);
+            });
+
+        // 注册业务端路由（无需 admin 中间件）
+        Route::prefix('{$routePath}')
+            ->middleware(['web'])
+            ->group(function () {
+                // 业务端公开接口可在此添加
+            });
+    }
+
+    public function register(): void
+    {
+        //
+    }
+}
+PHP;
+    }
+
+    /**
+     * 生成业务端 Vue 页面（插件前台）
+     */
+    protected function generateBusinessVueCode(string $plugin, string $kebabName, string $name): string
+    {
+        return <<<VUE
+<template>
+  <div class="{$kebabName}-page">
+    <h1>{$name} List</h1>
+    <a-table :columns="columns" :data="data" :loading="loading">
+      <template #actions="{ record }">
+        <a-space>
+          <a-button type="text" size="small" @click="viewDetail(record)">查看</a-button>
+        </a-space>
+      </template>
+    </a-table>
+  </div>
+</template>
+
+<script lang="ts" setup>
+import { ref, onMounted } from 'vue';
+import axios from 'axios';
+
+const columns = [
+  { title: 'ID', dataIndex: 'id' },
+  { title: '名称', dataIndex: 'name' },
+  { title: '创建时间', dataIndex: 'created_at' },
+];
+
+const data = ref([]);
+const loading = ref(false);
+
+async function fetchData() {
+  loading.value = true;
+  try {
+    const res = await axios.get('/plugin/{$plugin}/{$kebabName}');
+    data.value = res.data.data || [];
+  } finally {
+    loading.value = false;
+  }
+}
+
+function viewDetail(record: any) {
+  // TODO: 实现详情查看逻辑
+}
+
+onMounted(fetchData);
+</script>
+VUE;
     }
 
     protected function getGeneratedFiles(string $name, string $kebabName, string $parent, string $type, ?string $plugin, string $table): array
@@ -504,7 +682,10 @@ TS;
         $files = [];
         $files[] = $this->getControllerPath($name, $type, $plugin);
         $files[] = $this->getModelPath($name, $type, $plugin);
-        $files[] = "database/migrations/xxxx_xx_xx_xx_create_{$table}_table.php";
+        $migrationPath = $type === 'plugin'
+            ? "plugins/" . Str::kebab($plugin) . "/database/migrations/xxxx_xx_xx_xx_create_{$table}_table.php"
+            : "database/migrations/xxxx_xx_xx_xx_create_{$table}_table.php";
+        $files[] = $migrationPath;
         $files[] = $this->getVuePath($parent, $kebabName, $type, $plugin);
         $files[] = $this->getRouterPath($parent, $kebabName, $type);
         $files[] = "web/src/views/{$parent}/{$kebabName}/locale/zh-CN.ts";
@@ -515,7 +696,7 @@ TS;
     protected function getControllerPath(string $name, string $type, ?string $plugin): string
     {
         return $type === 'plugin'
-            ? "plugins/{$plugin}/Admin/Controllers/{$name}Controller.php"
+            ? "plugins/" . Str::kebab($plugin) . "/Admin/Controllers/{$name}Controller.php"
             : "app/Admin/Controllers/{$name}Controller.php";
     }
 
@@ -523,14 +704,14 @@ TS;
     {
         $modelName = $type === 'plugin' ? $name : "Admin{$name}";
         return $type === 'plugin'
-            ? "plugins/{$plugin}/Models/{$modelName}.php"
+            ? "plugins/" . Str::kebab($plugin) . "/Models/{$modelName}.php"
             : "app/Admin/Models/{$modelName}.php";
     }
 
     protected function getVuePath(string $parent, string $kebabName, string $type, ?string $plugin): string
     {
         return $type === 'plugin'
-            ? "web/src/views/plugin/{$plugin}/{$kebabName}/index.vue"
+            ? "web/src/views/plugin/" . Str::kebab($plugin) . "/{$kebabName}/index.vue"
             : "web/src/views/{$parent}/{$kebabName}/index.vue";
     }
 
@@ -544,10 +725,37 @@ TS;
     protected function doGenerate(array $config): array
     {
         $preview = $this->generatePreview($config);
-        // 这里实际执行文件写入操作
-        // 通过调用 HasFileGeneration 或 Artisan 命令完成
+        $basePath = base_path();
+        $writtenFiles = [];
+
+        foreach ($preview['preview'] as $key => $fileInfo) {
+            $path = $fileInfo['path'];
+            $content = $fileInfo['content'];
+            $fullPath = $basePath . '/' . $path;
+
+            // 确保目录存在
+            $dir = dirname($fullPath);
+            if (!is_dir($dir)) {
+                mkdir($dir, 0755, true);
+            }
+
+            // 检查文件是否已存在
+            $force = $config['force'] ?? false;
+            if (file_exists($fullPath) && !$force) {
+                throw new \Exception("文件 {$path} 已存在，请使用 force 参数覆盖");
+            }
+
+            // 写入文件
+            $result = file_put_contents($fullPath, $content);
+            if ($result === false) {
+                throw new \Exception("无法写入文件 {$path}");
+            }
+
+            $writtenFiles[] = $path;
+        }
+
         return [
-            'files' => $preview['files'],
+            'files' => $writtenFiles,
             'message' => '代码已生成',
         ];
     }

@@ -125,7 +125,7 @@ class Notification
     /**
      * 快捷方法：发送成功通知
      */
-    public static function success(string $title, string $body = ''): self
+    public static function sendSuccess(string $title, string $body = ''): self
     {
         return self::make($title)->body($body)->success()->send();
     }
@@ -133,7 +133,7 @@ class Notification
     /**
      * 快捷方法：发送错误通知
      */
-    public static function error(string $title, string $body = ''): self
+    public static function sendError(string $title, string $body = ''): self
     {
         return self::make($title)->body($body)->error()->send();
     }
@@ -141,7 +141,7 @@ class Notification
     /**
      * 快捷方法：发送警告通知
      */
-    public static function warning(string $title, string $body = ''): self
+    public static function sendWarning(string $title, string $body = ''): self
     {
         return self::make($title)->body($body)->warning()->send();
     }
@@ -149,7 +149,7 @@ class Notification
     /**
      * 快捷方法：发送信息通知
      */
-    public static function info(string $title, string $body = ''): self
+    public static function sendInfo(string $title, string $body = ''): self
     {
         return self::make($title)->body($body)->info()->send();
     }

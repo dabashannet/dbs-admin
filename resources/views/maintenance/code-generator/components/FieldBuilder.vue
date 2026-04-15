@@ -129,8 +129,8 @@ function addField() {
 function addTimestamps() {
   fields.value = [
     ...fields.value,
-    createField({ key: 'created_at', label: '创建时间', db_type: 'dateTime', nullable: true }),
-    createField({ key: 'updated_at', label: '更新时间', db_type: 'dateTime', nullable: true }),
+    createField({ type: 'dateTime', key: 'created_at', label: '创建时间', db_type: 'dateTime', nullable: true }),
+    createField({ type: 'dateTime', key: 'updated_at', label: '更新时间', db_type: 'dateTime', nullable: true }),
   ];
 }
 

@@ -83,9 +83,24 @@ function addFilter() {
 
 function addAllFields() {
   if (!props.fields || props.fields.length === 0) return;
-  const newFilters = props.fields
-    .filter((f) => ['select', 'radio', 'switch', 'boolean'].includes(f.type))
-    .map((f) => createFilter({ key: f.key, label: f.label, type: 'select' }));
+  const newFilters = props.fields.map((f) => {
+    // 根据字段类型自动匹配筛选类型
+    let filterType = 'like';
+    const fieldType = f.type || '';
+    const dbType = f.db_type || '';
+
+    if (['date', 'dateTime', 'time'].includes(fieldType) || ['date', 'dateTime', 'timestamp'].includes(dbType)) {
+      filterType = 'between_date';
+    } else if (['select', 'radio', 'checkbox', 'switch'].includes(fieldType) || dbType === 'boolean') {
+      filterType = 'select';
+    } else if (['number', 'integer', 'decimal', 'float'].includes(fieldType) || ['integer', 'bigInteger', 'decimal', 'float'].includes(dbType)) {
+      filterType = 'between';
+    } else if (['tags'].includes(fieldType)) {
+      filterType = 'in';
+    }
+
+    return createFilter({ key: f.key, label: f.label, type: filterType });
+  });
   filters.value = [...filters.value, ...newFilters];
 }
 

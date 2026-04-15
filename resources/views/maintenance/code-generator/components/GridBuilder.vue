@@ -107,9 +107,32 @@ function addDefaultColumns() {
 
 function addAllFields() {
   if (!props.fields || props.fields.length === 0) return;
-  const newCols = props.fields.map((f) =>
-    createColumn({ key: f.key, label: f.label })
-  );
+  const newCols = props.fields.map((f) => {
+    // 根据字段类型自动推断 display_type
+    let displayType = '';
+    const fieldType = f.type || '';
+    const dbType = f.db_type || '';
+
+    if (['date', 'dateTime', 'time'].includes(fieldType) || ['date', 'dateTime', 'timestamp'].includes(dbType)) {
+      displayType = 'datetime';
+    } else if (['switch', 'boolean'].includes(fieldType) || dbType === 'boolean') {
+      displayType = 'toggle';
+    } else if (['image'].includes(fieldType)) {
+      displayType = 'image';
+    } else if (['images'].includes(fieldType)) {
+      displayType = 'tags';
+    } else if (['select', 'radio', 'checkbox'].includes(fieldType)) {
+      displayType = 'badge';
+    } else if (['rate'].includes(fieldType)) {
+      displayType = 'count';
+    } else if (['color'].includes(fieldType)) {
+      displayType = 'color';
+    } else if (['number', 'integer', 'decimal', 'float'].includes(fieldType) || ['integer', 'bigInteger', 'decimal', 'float'].includes(dbType)) {
+      displayType = 'money';
+    }
+
+    return createColumn({ key: f.key, label: f.label, display_type: displayType });
+  });
   gridColumns.value = [...gridColumns.value, ...newCols];
 }
 

@@ -1,11 +1,12 @@
 <template>
   <div class="code-generator-container">
-    <!-- 基础配置区域 -->
-    <div class="config-section">
-      <div class="section-header">
+    <!-- 主工作区：配置 + 数据表 + Tab 合并为一个白色卡片 -->
+    <div class="main-card">
+      <!-- 头部标题和操作按钮 -->
+      <div class="card-header">
         <a-space>
           <icon-code />
-          <span class="section-title">代码生成器</span>
+          <span class="card-title">代码生成器</span>
         </a-space>
         <a-space>
           <a-button
@@ -26,6 +27,7 @@
         </a-space>
       </div>
 
+      <!-- 基础配置表单 -->
       <a-form :model="form" layout="inline" class="config-form">
         <a-form-item label="资源名称">
           <a-input
@@ -85,34 +87,35 @@
           />
         </a-form-item>
       </a-form>
-    </div>
 
-    <!-- 数据表管理区域 -->
-    <div class="table-section">
-      <div class="table-section-header">
-        <span class="section-title">数据表管理</span>
-        <a-space>
-          <a-button type="primary" size="small" @click="addTable">
-            <icon-plus /> 添加数据表
-          </a-button>
-          <a-select
-            v-if="form.tables.length > 0"
-            v-model="activeTableIndex"
-            size="small"
-            style="width: 200px"
-            placeholder="选择当前编辑的表"
-          >
-            <a-option v-for="(t, i) in form.tables" :key="i" :value="i">
-              {{ t.table }} ({{ t.name }})
-            </a-option>
-          </a-select>
-        </a-space>
+      <!-- 分隔线 -->
+      <a-divider style="margin: 16px 0" />
+
+      <!-- 数据表管理 -->
+      <div class="table-section">
+        <div class="table-header">
+          <span class="table-title">数据表管理</span>
+          <a-space>
+            <a-button type="primary" size="small" @click="addTable">
+              <icon-plus /> 添加数据表
+            </a-button>
+            <a-select
+              v-if="form.tables.length > 0"
+              v-model="activeTableIndex"
+              size="small"
+              style="width: 200px"
+              placeholder="选择当前编辑的表"
+            >
+              <a-option v-for="(t, i) in form.tables" :key="i" :value="i">
+                {{ t.table }} ({{ t.name }})
+              </a-option>
+            </a-select>
+          </a-space>
+        </div>
       </div>
-    </div>
 
-    <!-- Tab 区域 -->
-    <div class="tabs-section">
-      <a-tabs v-model:active-key="activeTab">
+      <!-- Tab 区域 -->
+      <a-tabs v-model:active-key="activeTab" class="generator-tabs">
         <a-tab-pane key="fields" title="字段定义">
           <a-empty
             v-if="form.tables.length === 0"
@@ -213,12 +216,12 @@
       </a-tabs>
     </div>
 
-    <!-- 已生成历史列表 -->
-    <div v-if="generatedHistory.length > 0" class="history-section">
+    <!-- 已生成历史列表：单独白色卡片 -->
+    <div v-if="generatedHistory.length > 0" class="history-card">
       <div class="history-header">
         <a-space>
           <icon-history />
-          <span class="section-title">已生成记录</span>
+          <span class="history-title">已生成记录</span>
         </a-space>
       </div>
       <a-table
@@ -745,8 +748,8 @@
     min-height: calc(100vh - 100px);
   }
 
-  // 基础配置区域 - 白色背景
-  .config-section {
+  // 主工作区卡片 - 白色背景
+  .main-card {
     background: white;
     border-radius: 8px;
     padding: 20px;
@@ -754,21 +757,21 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   }
 
-  .section-header {
+  // 卡片头部
+  .card-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 16px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--color-border-2);
 
-    .section-title {
+    .card-title {
       font-size: 16px;
       font-weight: 500;
       color: var(--color-text-1);
     }
   }
 
+  // 配置表单
   .config-form {
     display: flex;
     flex-wrap: wrap;
@@ -779,38 +782,30 @@
     }
   }
 
-  // 数据表管理区域 - 白色背景
+  // 数据表管理区域
   .table-section {
-    background: white;
-    border-radius: 8px;
-    padding: 16px 20px;
-    margin-bottom: 16px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    margin-bottom: 8px;
   }
 
-  .table-section-header {
+  .table-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
 
-    .section-title {
+    .table-title {
       font-size: 14px;
       font-weight: 500;
       color: var(--color-text-1);
     }
   }
 
-  // Tab 区域 - 白色背景
-  .tabs-section {
-    background: white;
-    border-radius: 8px;
-    padding: 20px;
-    margin-bottom: 16px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  // Tab 区域
+  .generator-tabs {
+    min-height: 400px;
   }
 
-  // 历史记录区域 - 白色背景
-  .history-section {
+  // 历史记录卡片 - 独立白色背景
+  .history-card {
     background: white;
     border-radius: 8px;
     padding: 20px;
@@ -822,7 +817,7 @@
     padding-bottom: 12px;
     border-bottom: 1px solid var(--color-border-2);
 
-    .section-title {
+    .history-title {
       font-size: 16px;
       font-weight: 500;
       color: var(--color-text-1);
@@ -852,14 +847,12 @@
       padding: 12px;
     }
 
-    .config-section,
-    .table-section,
-    .tabs-section,
-    .history-section {
+    .main-card,
+    .history-card {
       padding: 16px;
     }
 
-    .section-header {
+    .card-header {
       flex-direction: column;
       align-items: flex-start;
       gap: 12px;
@@ -871,6 +864,12 @@
       :deep(.arco-form-item) {
         width: 100%;
       }
+    }
+
+    .table-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
     }
   }
 </style>

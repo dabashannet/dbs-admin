@@ -396,9 +396,48 @@ PHP;
             return "->text('name', '名称')->required()";
         }
 
+        // 字段类型到表单组件的映射
+        $typeMap = [
+            'text' => 'text',
+            'password' => 'password',
+            'textarea' => 'textarea',
+            'number' => 'number',
+            'email' => 'email',
+            'select' => 'select',
+            'switch' => 'switch',
+            'radio' => 'radio',
+            'checkbox' => 'checkbox',
+            'date' => 'date',
+            'dateTime' => 'dateTime',
+            'time' => 'time',
+            'image' => 'image',
+            'images' => 'images',
+            'file' => 'file',
+            'files' => 'files',
+            'editor' => 'editor',
+            'markdown' => 'markdown',
+            'code' => 'code',
+            'color' => 'color',
+            'slider' => 'slider',
+            'rate' => 'rate',
+            'tags' => 'tags',
+            'icon' => 'icon',
+            'treeSelect' => 'treeSelect',
+            'cascader' => 'cascader',
+            'autoComplete' => 'autoComplete',
+            'keyValue' => 'keyValue',
+            'repeater' => 'repeater',
+            'toggleButtons' => 'toggleButtons',
+            'hidden' => 'hidden',
+        ];
+
         $lines = [];
         foreach ($fields as $field) {
-            $line = "->{$field['type']}('{$field['key']}', '{$field['label']}')";
+            $fieldType = $field['type'] ?? 'text';
+            $formType = $typeMap[$fieldType] ?? 'text';
+            $label = $field['label'] ?? $field['key'] ?? '';
+
+            $line = "->{$formType}('{$field['key']}', '{$label}')";
             if (!empty($field['required'])) {
                 $line .= '->required()';
             }

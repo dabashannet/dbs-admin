@@ -260,6 +260,7 @@ class CodeGeneratorController extends AdminController
             $pluginKebab = Str::kebab($plugin);
             $pluginJson = $this->generatePluginJson($plugin, $name, $tableName, $parent, $kebabName, $icon, $order);
             $serviceProvider = $this->generatePluginServiceProvider($plugin, $name, $parent, $kebabName, $icon, $order);
+            $adminRoutes = $this->generatePluginAdminRoutes($plugin, $name, $parent, $kebabName);
             $businessVue = $this->generateBusinessVueCode($pluginKebab, $kebabName, $name);
 
             $pluginFiles = [
@@ -271,6 +272,10 @@ class CodeGeneratorController extends AdminController
                     'path' => "plugins/{$pluginKebab}/PluginServiceProvider.php",
                     'content' => $serviceProvider,
                 ],
+                'admin_routes' => [
+                    'path' => "plugins/{$pluginKebab}/Admin/routes.php",
+                    'content' => $adminRoutes,
+                ],
                 'business_vue' => [
                     'path' => "web/src/views/plugin/{$pluginKebab}/{$kebabName}/index.vue",
                     'content' => $businessVue,
@@ -279,6 +284,7 @@ class CodeGeneratorController extends AdminController
 
             $files[] = "plugins/{$pluginKebab}/plugin.json";
             $files[] = "plugins/{$pluginKebab}/PluginServiceProvider.php";
+            $files[] = "plugins/{$pluginKebab}/Admin/routes.php";
             $files[] = "web/src/views/plugin/{$pluginKebab}/{$kebabName}/index.vue";
         }
 
@@ -583,46 +589,62 @@ TS;
     protected function generatePluginServiceProvider(string $plugin, string $name, string $parent, string $kebabName, string $icon, int $order): string
     {
         $pluginStudly = Str::studly($plugin);
-        $controllerClass = "Plugins\\\\{$pluginStudly}\\\\Admin\\\\Controllers\\\\{$name}Controller";
-        $routePath = "/plugin/{$plugin}";
 
         return <<<PHP
 <?php
 
 namespace Plugins\\{$pluginStudly};
 
-use Illuminate\Support\Facades\Route;
-use Illuminate\Support\ServiceProvider;
-use Dabashan\DbsAdmin\Facades\Admin;
+use Illuminate\\Support\\ServiceProvider;
 
 class PluginServiceProvider extends ServiceProvider
 {
-    public function boot(): void
-    {
-        // 注册后台路由
-        Route::prefix('admin')
-            ->middleware(['web', 'auth:sanctum'])
-            ->group(function () {
-                Admin::route()->get('{$parent}/{$kebabName}', [{$controllerClass}::class, 'index']);
-                Admin::route()->post('{$parent}/{$kebabName}', [{$controllerClass}::class, 'store']);
-                Admin::route()->get('{$parent}/{$kebabName}/{id}', [{$controllerClass}::class, 'show']);
-                Admin::route()->put('{$parent}/{$kebabName}/{id}', [{$controllerClass}::class, 'update']);
-                Admin::route()->delete('{$parent}/{$kebabName}/{id}', [{$controllerClass}::class, 'destroy']);
-            });
-
-        // 注册业务端路由（无需 admin 中间件）
-        Route::prefix('{$routePath}')
-            ->middleware(['web'])
-            ->group(function () {
-                // 业务端公开接口可在此添加
-            });
-    }
-
     public function register(): void
     {
         //
     }
+
+    public function boot(): void
+    {
+        // 加载数据库迁移
+        \$migrationsPath = __DIR__ . '/../database/migrations';
+        if (is_dir(\$migrationsPath)) {
+            \$this->loadMigrationsFrom(\$migrationsPath);
+        }
+
+        // 加载后台路由
+        \$adminRoutes = __DIR__ . '/../Admin/routes.php';
+        if (file_exists(\$adminRoutes)) {
+            \$this->loadRoutesFrom(\$adminRoutes);
+        }
+    }
 }
+PHP;
+    }
+
+    /**
+     * 生成插件后台路由文件
+     */
+    protected function generatePluginAdminRoutes(string $plugin, string $name, string $parent, string $kebabName): string
+    {
+        $pluginStudly = Str::studly($plugin);
+        $controllerClass = "Plugins\\\\{$pluginStudly}\\\\Admin\\\\Controllers\\\\{$name}Controller";
+
+        return <<<PHP
+<?php
+
+use Illuminate\\Support\\Facades\\Route;
+use {$controllerClass};
+
+Route::prefix('admin')
+    ->middleware(['api', 'auth:sanctum'])
+    ->group(function () {
+        Route::get('{$parent}/{$kebabName}', [{$name}Controller::class, 'index']);
+        Route::post('{$parent}/{$kebabName}', [{$name}Controller::class, 'store']);
+        Route::get('{$parent}/{$kebabName}/{id}', [{$name}Controller::class, 'show']);
+        Route::put('{$parent}/{$kebabName}/{id}', [{$name}Controller::class, 'update']);
+        Route::delete('{$parent}/{$kebabName}/{id}', [{$name}Controller::class, 'destroy']);
+    });
 PHP;
     }
 

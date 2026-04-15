@@ -628,13 +628,13 @@ PHP;
     protected function generatePluginAdminRoutes(string $plugin, string $name, string $parent, string $kebabName): string
     {
         $pluginStudly = Str::studly($plugin);
-        $controllerClass = "Plugins\\\\{$pluginStudly}\\\\Admin\\\\Controllers\\\\{$name}Controller";
+        $controllerNamespace = "Plugins\\{$pluginStudly}\\Admin\\Controllers\\{$name}Controller";
 
         return <<<PHP
 <?php
 
 use Illuminate\\Support\\Facades\\Route;
-use {$controllerClass};
+use {$controllerNamespace};
 
 Route::prefix('admin')
     ->middleware(['api', 'auth:sanctum'])

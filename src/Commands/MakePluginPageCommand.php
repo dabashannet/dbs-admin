@@ -63,7 +63,7 @@ class MakePluginPageCommand extends Command
             '{{ kebabName }}' => $kebabName,
             '{{ viewName }}' => $kebabName,
             '{{ parentPath }}' => "plugin.{$pluginKebab}",
-            '{{ apiPrefix }}' => ($useHttp ? '/api' : '/admin') . "/plugin/{$pluginSnake}/{$pluralKebab}",
+            '{{ apiPrefix }}' => ($useHttp ? '/plugin' : '/plugin') . "/{$pluginSnake}/" . ($useHttp ? 'api' : 'admin') . "/{$pluralKebab}",
             '{{ title }}' => $studlyName,
             '{{ titleEn }}' => $titleEn,
             '{{ pluralKebab }}' => $pluralKebab,

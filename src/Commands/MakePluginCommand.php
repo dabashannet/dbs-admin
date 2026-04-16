@@ -111,8 +111,8 @@ class MakePluginCommand extends Command
         $this->info("Plugin [{$name}] created successfully!");
         $this->newLine();
         $this->line("  Plugin path: {$pluginPath}");
-        $this->line("  Admin API:   /admin/plugin/{$name}/*");
-        $this->line("  Business API: /api/plugin/{$name}/*");
+        $this->line("  Admin API:   /plugin/{$name}/admin/*");
+        $this->line("  Business API: /plugin/{$name}/api/*");
         $this->newLine();
         $this->warn("Next steps:");
         $this->line("  1. Review and customize the generated files");

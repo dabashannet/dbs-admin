@@ -14,11 +14,11 @@
         {
             "title": "{{ pluginTitle }}",
             "icon": "icon-apps",
-            "uri": "plugin/{{ pluginKebab }}",
+            "uri": "admin",
             "children": [
                 {
                     "title": "插件首页",
-                    "uri": "plugin/{{ pluginKebab }}/index"
+                    "uri": "admin/index"
                 }
             ]
         }

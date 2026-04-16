@@ -3,7 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Plugins\{{ pluginStudly }}\Admin\Controllers\{{ pluginStudly }}Controller;
 
-Route::prefix('admin/plugin/{{ pluginName }}')
+Route::prefix('plugin/{{ pluginName }}/admin')
     ->middleware(['api', 'auth:admin'])
     ->group(function () {
         Route::get('config', [{{ pluginStudly }}Controller::class, 'config']);

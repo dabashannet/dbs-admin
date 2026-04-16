@@ -65,6 +65,64 @@ class CodeGeneratorController extends AdminController
     }
 
     /**
+     * 获取可用插件列表（用于代码生成器下拉选择）
+     */
+    public function plugins(): \Illuminate\Http\JsonResponse
+    {
+        $pluginPath = base_path('plugins');
+        $plugins = [];
+
+        if (is_dir($pluginPath)) {
+            foreach (scandir($pluginPath) as $dir) {
+                if ($dir === '.' || $dir === '..') {
+                    continue;
+                }
+                $jsonPath = $pluginPath . '/' . $dir . '/plugin.json';
+                if (file_exists($jsonPath)) {
+                    $config = json_decode(file_get_contents($jsonPath), true);
+                    if ($config && !empty($config['name'])) {
+                        $plugins[] = [
+                            'name' => $config['name'],
+                            'title' => $config['title'] ?? $config['name'],
+                            'description' => $config['description'] ?? '',
+                            'version' => $config['version'] ?? '1.0.0',
+                            'enabled' => $config['enabled'] ?? true,
+                        ];
+                    }
+                }
+            }
+        }
+
+        return $this->success($plugins);
+    }
+
+    /**
+     * 获取已有插件的 kebab-case 名称列表
+     */
+    protected function getExistingPluginNames(): array
+    {
+        $pluginPath = base_path('plugins');
+        $names = [];
+
+        if (is_dir($pluginPath)) {
+            foreach (scandir($pluginPath) as $dir) {
+                if ($dir === '.' || $dir === '..') {
+                    continue;
+                }
+                $jsonPath = $pluginPath . '/' . $dir . '/plugin.json';
+                if (file_exists($jsonPath)) {
+                    $config = json_decode(file_get_contents($jsonPath), true);
+                    if ($config && !empty($config['name'])) {
+                        $names[] = Str::kebab($config['name']);
+                    }
+                }
+            }
+        }
+
+        return $names;
+    }
+
+    /**
      * 获取生成器配置（字段类型、可用选项等）
      */
     public function generatorConfig(): \Illuminate\Http\JsonResponse
@@ -221,7 +279,6 @@ class CodeGeneratorController extends AdminController
     {
         $name = Str::studly($config['name']);
         $kebabName = Str::kebab($config['name']);
-        $pluralKebab = Str::plural($kebabName);
         $pluralSnake = Str::snake(Str::plural($name));
         $parent = $config['parent'] ?? 'system';
         $tableName = $config['table'] ?? ($config['type'] === 'plugin'
@@ -233,75 +290,86 @@ class CodeGeneratorController extends AdminController
         $order = $config['order'] ?? 90;
         $fields = $config['fields'] ?? [];
         $gridColumns = $config['grid_columns'] ?? [];
+        $plugin = $config['plugin'] ?? null;
+        $pluginKebab = $plugin ? Str::kebab($plugin) : null;
+
+        // 判断是已有插件还是新插件
+        $isNewPlugin = false;
+        if ($config['type'] === 'plugin' && $plugin) {
+            $existingPlugins = $this->getExistingPluginNames();
+            $isNewPlugin = !in_array($pluginKebab, $existingPlugins, true);
+        }
 
         // 生成 Controller 代码
-        $controllerCode = $this->generateControllerCode($name, $controllerName, $modelName, $config['type'], $fields, $gridColumns, $config['plugin'] ?? null);
+        $controllerCode = $this->generateControllerCode($name, $controllerName, $modelName, $config['type'], $fields, $gridColumns, $plugin);
 
         // 生成 Model 代码
-        $modelCode = $this->generateModelCode($modelName, $tableName, $config['fillable'] ?? [], $config['type'], $config['plugin'] ?? null);
+        $modelCode = $this->generateModelCode($modelName, $tableName, $config['fillable'] ?? [], $config['type'], $plugin);
 
         // 生成迁移代码
         $migrationCode = $this->generateMigrationCode($tableName, $fields);
 
         // 生成 Vue 页面代码
-        $vueCode = $this->generateVueCode($parent, $kebabName, $name);
+        $vueCode = $this->generateVueCode($parent, $kebabName, $name, $config['type'], $pluginKebab);
 
         // 生成路由代码
-        $routerCode = $this->generateRouterCode($parent, $kebabName, $name, $icon, $order);
+        $routerCode = $this->generateRouterCode($parent, $kebabName, $name, $icon, $order, $config['type'], $pluginKebab);
 
         // 生成文件列表
-        $files = $this->getGeneratedFiles($name, $kebabName, $parent, $config['type'], $config['plugin'] ?? null, $tableName);
+        $files = $this->getGeneratedFiles($name, $kebabName, $parent, $config['type'], $plugin, $tableName, $pluginKebab);
 
-        // 插件模式额外生成 plugin.json、服务提供者和业务端页面
-        // 注意：不再单独生成业务端路由文件，因为动态插件加载器（dynamic-plugin-loader.ts）
-        // 已经从 API 获取插件菜单并动态注册路由，静态路由文件会导致冗余和冲突
-        if ($config['type'] === 'plugin') {
-            $plugin = $config['plugin'] ?? '';
-            $pluginKebab = Str::kebab($plugin);
-            $pluginJson = $this->generatePluginJson($plugin, $name, $tableName, $parent, $kebabName, $icon, $order);
-            $serviceProvider = $this->generatePluginServiceProvider($plugin, $name, $parent, $kebabName, $icon, $order);
+        // 插件模式额外处理
+        $pluginFiles = [];
+        if ($config['type'] === 'plugin' && $plugin) {
+            // 新插件才生成 plugin.json、ServiceProvider 等脚手架文件
+            if ($isNewPlugin) {
+                $pluginJson = $this->generatePluginJson($plugin, $name, $tableName, $parent, $kebabName, $icon, $order);
+                $serviceProvider = $this->generatePluginServiceProvider($plugin, $name);
+
+                $pluginFiles['plugin_json'] = [
+                    'path' => "plugins/{$pluginKebab}/plugin.json",
+                    'content' => $pluginJson,
+                ];
+                $pluginFiles['service_provider'] = [
+                    'path' => "plugins/{$pluginKebab}/PluginServiceProvider.php",
+                    'content' => $serviceProvider,
+                ];
+
+                $files[] = "plugins/{$pluginKebab}/plugin.json";
+                $files[] = "plugins/{$pluginKebab}/PluginServiceProvider.php";
+            }
+
+            // 无论新旧都生成 Admin 路由文件和业务端页面
             $adminRoutes = $this->generatePluginAdminRoutes($plugin, $name, $parent, $kebabName);
             $businessVue = $this->generateBusinessVueCode($pluginKebab, $kebabName, $name);
 
-            $pluginFiles = [
-                'plugin_json' => [
-                    'path' => "plugins/{$pluginKebab}/plugin.json",
-                    'content' => $pluginJson,
-                ],
-                'service_provider' => [
-                    'path' => "plugins/{$pluginKebab}/PluginServiceProvider.php",
-                    'content' => $serviceProvider,
-                ],
-                'admin_routes' => [
-                    'path' => "plugins/{$pluginKebab}/Admin/routes.php",
-                    'content' => $adminRoutes,
-                ],
-                'business_vue' => [
-                    'path' => "web/src/views/plugin/{$pluginKebab}/{$kebabName}/index.vue",
-                    'content' => $businessVue,
-                ],
+            $pluginFiles['admin_routes'] = [
+                'path' => "plugins/{$pluginKebab}/Admin/routes.php",
+                'content' => $adminRoutes,
+            ];
+            $pluginFiles['business_vue'] = [
+                'path' => "web/src/views/plugin/{$pluginKebab}/{$kebabName}/index.vue",
+                'content' => $businessVue,
             ];
 
-            $files[] = "plugins/{$pluginKebab}/plugin.json";
-            $files[] = "plugins/{$pluginKebab}/PluginServiceProvider.php";
             $files[] = "plugins/{$pluginKebab}/Admin/routes.php";
             $files[] = "web/src/views/plugin/{$pluginKebab}/{$kebabName}/index.vue";
         }
 
         // 迁移路径：插件放 plugin 自己的 database/migrations，核心放全局 database/migrations
         $migrationPath = $config['type'] === 'plugin'
-            ? "plugins/" . Str::kebab($config['plugin'] ?? '') . "/database/migrations/xxxx_xx_xx_xx_create_{$tableName}_table.php"
+            ? "plugins/{$pluginKebab}/database/migrations/xxxx_xx_xx_xx_create_{$tableName}_table.php"
             : "database/migrations/xxxx_xx_xx_xx_create_{$tableName}_table.php";
 
         return [
             'files' => $files,
             'preview' => array_merge([
                 'controller' => [
-                    'path' => $this->getControllerPath($name, $config['type'], $config['plugin'] ?? null),
+                    'path' => $this->getControllerPath($name, $config['type'], $plugin),
                     'content' => $controllerCode,
                 ],
                 'model' => [
-                    'path' => $this->getModelPath($modelName, $config['type'], $config['plugin'] ?? null),
+                    'path' => $this->getModelPath($modelName, $config['type'], $plugin),
                     'content' => $modelCode,
                 ],
                 'migration' => [
@@ -309,11 +377,11 @@ class CodeGeneratorController extends AdminController
                     'content' => $migrationCode,
                 ],
                 'vue' => [
-                    'path' => $this->getVuePath($parent, $kebabName, $config['type'], $config['plugin'] ?? null),
+                    'path' => $this->getVuePath($parent, $kebabName, $config['type'], $plugin),
                     'content' => $vueCode,
                 ],
                 'router' => [
-                    'path' => $this->getRouterPath($parent, $kebabName, $config['type']),
+                    'path' => $this->getRouterPath($parent, $kebabName, $config['type'], $pluginKebab),
                     'content' => $routerCode,
                 ],
             ], $pluginFiles),
@@ -523,8 +591,166 @@ return new class extends Migration
 PHP;
     }
 
-    protected function generateVueCode(string $parent, string $kebabName, string $name): string
+    protected function generateVueCode(string $parent, string $kebabName, string $name, string $type = 'core', ?string $pluginKebab = null): string
     {
+        // 插件模式下使用 Arco Design 组件，生成到插件视图目录
+        if ($type === 'plugin' && $pluginKebab) {
+            return <<<VUE
+<template>
+  <div class="{$kebabName}-container">
+    <a-card class="general-card">
+      <template #title>{{ \$t('menu.{$parent}.{$kebabName}') }}</template>
+
+      <!-- 筛选区域 -->
+      <a-form layout="inline" class="filter-form">
+        <a-form-item field="keyword" label="关键词">
+          <a-input v-model="queryParams.keyword" placeholder="请输入关键词" allow-clear @clear="handleSearch" />
+        </a-form-item>
+        <a-form-item>
+          <a-space>
+            <a-button type="primary" @click="handleSearch">
+              <template #icon><icon-search /></template> 搜索
+            </a-button>
+            <a-button @click="handleReset">
+              <template #icon><icon-refresh /></template> 重置
+            </a-button>
+          </a-space>
+        </a-form-item>
+      </a-form>
+
+      <!-- 操作按钮 -->
+      <div class="action-bar">
+        <a-button type="primary" @click="handleAdd">
+          <template #icon><icon-plus /></template> 新增{$name}
+        </a-button>
+      </div>
+
+      <!-- 数据表格 -->
+      <a-table
+        :columns="columns"
+        :data="tableData"
+        :loading="loading"
+        :pagination="pagination"
+        @page-change="handlePageChange"
+      >
+        <template #actions="{ record }">
+          <a-space>
+            <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
+            <a-popconfirm content="确定删除?" @ok="handleDelete(record)">
+              <a-button type="text" status="danger" size="small">删除</a-button>
+            </a-popconfirm>
+          </a-space>
+        </template>
+      </a-table>
+    </a-card>
+
+    <!-- 新增/编辑弹窗 -->
+    <a-modal
+      v-model:visible="modalVisible"
+      :title="modalTitle"
+      @ok="handleSubmit"
+      @cancel="modalVisible = false"
+    >
+      <a-form ref="formRef" :model="formData" auto-label-width>
+        <a-form-item field="name" label="名称" :rules="[{ required: true, message: '请输入名称' }]">
+          <a-input v-model="formData.name" placeholder="请输入名称" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+  </div>
+</template>
+
+<script lang="ts" setup>
+  import { ref, reactive, onMounted } from 'vue';
+  import { Message } from '@arco-design/web-vue';
+  import axios from 'axios';
+
+  const columns = [
+    { title: 'ID', dataIndex: 'id', width: 80 },
+    { title: '名称', dataIndex: 'name' },
+    { title: '创建时间', dataIndex: 'created_at', width: 180 },
+    { title: '操作', slotName: 'actions', width: 150 },
+  ];
+
+  const tableData = ref([]);
+  const loading = ref(false);
+  const pagination = reactive({ current: 1, pageSize: 15, total: 0, showTotal: true });
+  const queryParams = reactive({ keyword: '' });
+
+  const modalVisible = ref(false);
+  const modalTitle = ref('新增{$name}');
+  const formData = reactive({ id: null, name: '' });
+  const formRef = ref();
+
+  async function fetchData() {
+    loading.value = true;
+    try {
+      const res = await axios.get('/plugin/{$pluginKebab}/admin/{$parent}/{$kebabName}', {
+        params: { ...queryParams, page: pagination.current },
+      });
+      tableData.value = res.data.data || [];
+      pagination.total = res.data.total || 0;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  function handleSearch() { pagination.current = 1; fetchData(); }
+  function handleReset() { queryParams.keyword = ''; handleSearch(); }
+  function handlePageChange(page: number) { pagination.current = page; fetchData(); }
+
+  function handleAdd() {
+    modalTitle.value = '新增{$name}';
+    Object.assign(formData, { id: null, name: '' });
+    modalVisible.value = true;
+  }
+
+  function handleEdit(record: any) {
+    modalTitle.value = '编辑{$name}';
+    Object.assign(formData, record);
+    modalVisible.value = true;
+  }
+
+  async function handleSubmit() {
+    const errors = await formRef.value?.validate();
+    if (errors) return;
+    try {
+      if (formData.id) {
+        await axios.put('/plugin/{$pluginKebab}/admin/{$parent}/{$kebabName}/' + formData.id, formData);
+        Message.success('更新成功');
+      } else {
+        await axios.post('/plugin/{$pluginKebab}/admin/{$parent}/{$kebabName}', formData);
+        Message.success('创建成功');
+      }
+      modalVisible.value = false;
+      fetchData();
+    } catch (e: any) {
+      Message.error(e.response?.data?.msg || '操作失败');
+    }
+  }
+
+  async function handleDelete(record: any) {
+    try {
+      await axios.delete('/plugin/{$pluginKebab}/admin/{$parent}/{$kebabName}/' + record.id);
+      Message.success('删除成功');
+      fetchData();
+    } catch (e: any) {
+      Message.error(e.response?.data?.msg || '删除失败');
+    }
+  }
+
+  onMounted(fetchData);
+</script>
+
+<style scoped>
+  .{$kebabName}-container { padding: 20px; }
+  .filter-form { margin-bottom: 16px; }
+  .action-bar { margin-bottom: 16px; }
+</style>
+VUE;
+        }
+
+        // 核心模块
         return <<<VUE
 <template>
   <DynamicCrud
@@ -541,8 +767,32 @@ PHP;
 VUE;
     }
 
-    protected function generateRouterCode(string $parent, string $kebabName, string $name, string $icon, int $order): string
+    protected function generateRouterCode(string $parent, string $kebabName, string $name, string $icon, int $order, string $type = 'core', ?string $pluginKebab = null): string
     {
+        // 插件模式：路由由动态加载器处理，不需要生成静态路由文件
+        // 这里生成一个占位路由，实际路由在插件加载时动态注册
+        if ($type === 'plugin' && $pluginKebab) {
+            $pluginStudly = Str::studly($pluginKebab);
+            return <<<TS
+// 插件路由由 dynamic-plugin-loader.ts 动态注册
+// 此文件仅作为类型声明参考
+import { AppRouteRecordRaw } from '../types';
+
+const {$name}Route: AppRouteRecordRaw = {
+  path: '/plugin/{$pluginKebab}/{$kebabName}',
+  name: 'Plugin{$pluginStudly}{$name}',
+  component: () => import('@/views/plugin/{$pluginKebab}/{$kebabName}/index.vue'),
+  meta: {
+    locale: 'menu.plugin.{$kebabName}',
+    requiresAuth: true,
+    roles: ['*'],
+  },
+};
+
+export default {$name}Route;
+TS;
+        }
+
         $parentStudly = Str::studly($parent);
 
         return <<<TS
@@ -594,6 +844,7 @@ TS;
             'enabled' => true,
             'icon' => $icon,
             'type' => 'local',
+            'show_api' => true,
             'requires' => [],
             'providers' => [
                 "Plugins\\\\{$pluginStudly}\\\\PluginServiceProvider",
@@ -603,15 +854,9 @@ TS;
             ],
             'menus' => [
                 [
-                    'title' => "{$pluginStudly}",
+                    'title' => "{$name}管理",
                     'icon' => $icon,
                     'uri' => "{$parent}/{$kebabName}",
-                    'children' => [
-                        [
-                            'title' => "{$name}列表",
-                            'uri' => "{$parent}/{$kebabName}",
-                        ],
-                    ],
                 ],
             ],
             'permissions' => [
@@ -625,7 +870,7 @@ TS;
     /**
      * 生成插件服务提供者
      */
-    protected function generatePluginServiceProvider(string $plugin, string $name, string $parent, string $kebabName, string $icon, int $order): string
+    protected function generatePluginServiceProvider(string $plugin, string $name): string
     {
         $pluginStudly = Str::studly($plugin);
 
@@ -675,8 +920,9 @@ PHP;
 use Illuminate\\Support\\Facades\\Route;
 use {$controllerNamespace};
 
-Route::prefix('admin')
-    ->middleware(['api', 'auth:sanctum'])
+// 插件后台路由
+Route::prefix('plugin/{$plugin}/admin')
+    ->middleware(['api', 'auth:admin'])
     ->group(function () {
         Route::get('{$parent}/{$kebabName}', [{$name}Controller::class, 'index']);
         Route::post('{$parent}/{$kebabName}', [{$name}Controller::class, 'store']);
@@ -738,19 +984,21 @@ onMounted(fetchData);
 VUE;
     }
 
-    protected function getGeneratedFiles(string $name, string $kebabName, string $parent, string $type, ?string $plugin, string $table): array
+    protected function getGeneratedFiles(string $name, string $kebabName, string $parent, string $type, ?string $plugin, string $table, ?string $pluginKebab = null): array
     {
         $files = [];
         $files[] = $this->getControllerPath($name, $type, $plugin);
         $files[] = $this->getModelPath($name, $type, $plugin);
         $migrationPath = $type === 'plugin'
-            ? "plugins/" . Str::kebab($plugin) . "/database/migrations/xxxx_xx_xx_xx_create_{$table}_table.php"
+            ? "plugins/{$pluginKebab}/database/migrations/xxxx_xx_xx_xx_create_{$table}_table.php"
             : "database/migrations/xxxx_xx_xx_xx_create_{$table}_table.php";
         $files[] = $migrationPath;
         $files[] = $this->getVuePath($parent, $kebabName, $type, $plugin);
-        $files[] = $this->getRouterPath($parent, $kebabName, $type);
-        $files[] = "web/src/views/{$parent}/{$kebabName}/locale/zh-CN.ts";
-        $files[] = "web/src/views/{$parent}/{$kebabName}/locale/en-US.ts";
+        $files[] = $this->getRouterPath($parent, $kebabName, $type, $pluginKebab);
+        if ($type === 'core') {
+            $files[] = "web/src/views/{$parent}/{$kebabName}/locale/zh-CN.ts";
+            $files[] = "web/src/views/{$parent}/{$kebabName}/locale/en-US.ts";
+        }
         return $files;
     }
 
@@ -776,10 +1024,10 @@ VUE;
             : "web/src/views/{$parent}/{$kebabName}/index.vue";
     }
 
-    protected function getRouterPath(string $parent, string $kebabName, string $type): string
+    protected function getRouterPath(string $parent, string $kebabName, string $type, ?string $pluginKebab = null): string
     {
         return $type === 'plugin'
-            ? "web/src/router/routes/modules/plugin-{$parent}-{$kebabName}.ts"
+            ? "web/src/router/routes/modules/plugin-{$pluginKebab}-{$kebabName}.ts"
             : "web/src/router/routes/modules/{$parent}-{$kebabName}.ts";
     }
 

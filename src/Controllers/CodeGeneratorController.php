@@ -180,6 +180,24 @@ class CodeGeneratorController extends AdminController
         }
     }
 
+    /**
+     * 删除生成的代码（插件模式）
+     */
+    public function delete(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $validated = $request->validate([
+            'plugin' => 'required|string',
+            'name' => 'required|string',
+        ]);
+
+        try {
+            $result = $this->doDelete($validated);
+            return $this->success($result, '代码删除成功');
+        } catch (\Exception $e) {
+            return $this->fail('代码删除失败: ' . $e->getMessage());
+        }
+    }
+
     // ==================== 内部方法 ====================
 
     protected function getGeneratorConfig(): array
@@ -801,47 +819,59 @@ PHP;
     {
         return <<<VUE
 <template>
-  <div class="{$kebabName}-page">
-    <h1>{$name} List</h1>
-    <a-table :columns="columns" :data="data" :loading="loading">
-      <template #actions="{ record }">
-        <a-space>
-          <a-button type="text" size="small" @click="viewDetail(record)">查看</a-button>
-        </a-space>
-      </template>
-    </a-table>
+  <div class="container">
+    <a-card class="general-card" title="{$name}管理">
+      <a-table :columns="columns" :data="tableData" :loading="loading">
+        <template #actions="{ record }">
+          <a-space>
+            <a-button type="text" size="small" @click="viewDetail(record)">查看</a-button>
+          </a-space>
+        </template>
+      </a-table>
+    </a-card>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { ref, onMounted } from 'vue';
-import axios from 'axios';
+  import { ref, onMounted } from 'vue';
+  import axios from 'axios';
 
-const columns = [
-  { title: 'ID', dataIndex: 'id' },
-  { title: '名称', dataIndex: 'name' },
-  { title: '创建时间', dataIndex: 'created_at' },
-];
+  const columns = [
+    { title: 'ID', dataIndex: 'id', width: 80 },
+    { title: '名称', dataIndex: 'name' },
+    { title: '创建时间', dataIndex: 'created_at', width: 180 },
+    { title: '操作', slotName: 'actions', width: 150 },
+  ];
 
-const data = ref([]);
-const loading = ref(false);
+  const tableData = ref<any[]>([]);
+  const loading = ref(false);
 
-async function fetchData() {
-  loading.value = true;
-  try {
-    const res = await axios.get('/plugin/{$plugin}/{$kebabName}');
-    data.value = res.data.data || [];
-  } finally {
-    loading.value = false;
-  }
-}
+  const fetchData = async () => {
+    loading.value = true;
+    try {
+      const res = await axios.get('/plugin/{$plugin}/{$kebabName}');
+      tableData.value = res.data.data || [];
+    } catch (err) {
+      // 忽略错误
+    } finally {
+      loading.value = false;
+    }
+  };
 
-function viewDetail(record: any) {
-  // TODO: 实现详情查看逻辑
-}
+  const viewDetail = (record: any) => {
+    // TODO: 实现详情查看逻辑
+  };
 
-onMounted(fetchData);
+  onMounted(() => {
+    fetchData();
+  });
 </script>
+
+<style scoped lang="less">
+  .container {
+    padding: 0 20px 20px 20px;
+  }
+</style>
 VUE;
     }
 
@@ -898,7 +928,7 @@ VUE;
      */
     protected function appendPluginRouteToPluginTs(string $pluginKebab, string $childRouteCode, bool $isNewPlugin, string $name): string
     {
-        $pluginTsPath = base_path('laravel12/web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts');
+        $pluginTsPath = base_path('web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts');
         $pluginStudly = Str::studly($pluginKebab);
 
         if ($isNewPlugin || !file_exists($pluginTsPath)) {
@@ -1055,6 +1085,145 @@ TS;
         return [
             'files' => $writtenFiles,
             'message' => '代码生成成功',
+        ];
+    }
+
+    /**
+     * 删除插件生成的代码
+     */
+    protected function doDelete(array $config): array
+    {
+        $plugin = $config['plugin'];
+        $pluginKebab = Str::kebab($plugin);
+        $pluginStudly = Str::studly($plugin);
+        $name = Str::studly($config['name']);
+        $kebabName = Str::kebab($config['name']);
+        $basePath = base_path();
+        $deletedFiles = [];
+
+        // 1. 删除 Controller 文件
+        $controllerPath = $basePath . '/plugins/' . $pluginKebab . '/Admin/Controllers/' . $name . 'Controller.php';
+        if (file_exists($controllerPath)) {
+            unlink($controllerPath);
+            $deletedFiles[] = 'plugins/' . $pluginKebab . '/Admin/Controllers/' . $name . 'Controller.php';
+        }
+
+        // 2. 删除 Model 文件
+        $modelPath = $basePath . '/plugins/' . $pluginKebab . '/Models/' . $name . '.php';
+        if (file_exists($modelPath)) {
+            unlink($modelPath);
+            $deletedFiles[] = 'plugins/' . $pluginKebab . '/Models/' . $name . '.php';
+        }
+
+        // 3. 删除 Migration 文件（按名称匹配）
+        $migrationDir = $basePath . '/plugins/' . $pluginKebab . '/database/migrations';
+        if (is_dir($migrationDir)) {
+            foreach (scandir($migrationDir) as $file) {
+                if ($file === '.' || $file === '..') continue;
+                // 匹配包含 _create_插件名_资源名_ 的迁移文件
+                if (stripos($file, 'create') !== false && stripos($file, $kebabName) !== false) {
+                    unlink($migrationDir . '/' . $file);
+                    $deletedFiles[] = 'plugins/' . $pluginKebab . '/database/migrations/' . $file;
+                }
+            }
+        }
+
+        // 4. 删除 Vue 视图文件
+        $vuePath = $basePath . '/web/src/views/plugin/' . $pluginKebab . '/' . $kebabName . '/index.vue';
+        if (file_exists($vuePath)) {
+            unlink($vuePath);
+            $deletedFiles[] = 'web/src/views/plugin/' . $pluginKebab . '/' . $kebabName . '/index.vue';
+            // 清理空目录
+            $vueDir = dirname($vuePath);
+            if (is_dir($vueDir) && count(scandir($vueDir)) === 2) {
+                rmdir($vueDir);
+            }
+        }
+
+        // 5. 从 plugin-{pluginKebab}.ts 中移除对应的 child route
+        $routerPath = $basePath . '/web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts';
+        if (file_exists($routerPath)) {
+            $content = file_get_contents($routerPath);
+            if ($content !== false) {
+                // 匹配并移除该资源的 child route
+                $pattern = "/\s*\{\s*path:\s*'{$kebabName}',.*?\},\n/s";
+                $newContent = preg_replace($pattern, '', $content);
+                if ($newContent !== $content) {
+                    // 检查该插件是否还有其他资源
+                    $hasOtherResources = preg_match("/path:\s*'{$kebabName}'/", $newContent);
+                    if (!$hasOtherResources && $pluginKebab !== $kebabName) {
+                        // 如果只剩下 index 页面，检查是否还有 index
+                        $hasIndex = strpos($newContent, "path: 'index'") !== false;
+                        if (!$hasIndex) {
+                            // 该插件已无资源，删除整个路由文件
+                            unlink($routerPath);
+                            $deletedFiles[] = 'web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts';
+                        } else {
+                            file_put_contents($routerPath, $newContent);
+                            $deletedFiles[] = 'web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts';
+                        }
+                    } else {
+                        file_put_contents($routerPath, $newContent);
+                        $deletedFiles[] = 'web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts';
+                    }
+                }
+            }
+        }
+
+        // 6. 从 Admin/routes.php 中移除该资源的路由
+        $adminRoutesPath = $basePath . '/plugins/' . $pluginKebab . '/Admin/routes.php';
+        if (file_exists($adminRoutesPath)) {
+            $content = file_get_contents($adminRoutesPath);
+            if ($content !== false) {
+                // 移除包含该资源的路由行
+                $pattern = "/.*['\"].*[/]{$kebabName}['\"].*[\n\r]*/";
+                $newContent = preg_replace($pattern, '', $content);
+                // 检查是否还有有效路由（除了 PHP 标签和 Route::prefix）
+                $hasRoutes = preg_match("/Route::(get|post|put|delete|patch)/", $newContent);
+                if (!$hasRoutes) {
+                    // 只剩空内容，删除文件
+                    unlink($adminRoutesPath);
+                    $deletedFiles[] = 'plugins/' . $pluginKebab . '/Admin/routes.php';
+                } else {
+                    file_put_contents($adminRoutesPath, $newContent);
+                    $deletedFiles[] = 'plugins/' . $pluginKebab . '/Admin/routes.php';
+                }
+            }
+        }
+
+        // 7. 从 plugin.json 中移除对应的菜单和权限
+        $pluginJsonPath = $basePath . '/plugins/' . $pluginKebab . '/plugin.json';
+        if (file_exists($pluginJsonPath)) {
+            $jsonContent = file_get_contents($pluginJsonPath);
+            if ($jsonContent !== false) {
+                $json = json_decode($jsonContent, true);
+                if ($json) {
+                    // 移除对应的菜单
+                    if (!empty($json['menus'])) {
+                        $json['menus'] = array_values(array_filter($json['menus'], function ($menu) use ($kebabName) {
+                            return empty($menu['uri']) || !str_ends_with($menu['uri'], '/' . $kebabName);
+                        }));
+                    }
+                    // 移除对应的权限
+                    if (!empty($json['permissions'])) {
+                        $json['permissions'] = array_values(array_filter($json['permissions'], function ($perm) use ($kebabName) {
+                            return !str_ends_with($perm, '.' . $kebabName);
+                        }));
+                    }
+                    // 移除对应的 admin_controllers
+                    if (!empty($json['admin_controllers'])) {
+                        $json['admin_controllers'] = array_values(array_filter($json['admin_controllers'], function ($ctrl) use ($name) {
+                            return !str_ends_with($ctrl, $name . 'Controller');
+                        }));
+                    }
+                    file_put_contents($pluginJsonPath, json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+                }
+            }
+        }
+
+        return [
+            'files' => $deletedFiles,
+            'message' => '代码已删除',
         ];
     }
 }

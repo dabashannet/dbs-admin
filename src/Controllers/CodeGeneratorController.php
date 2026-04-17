@@ -300,7 +300,7 @@ class CodeGeneratorController extends AdminController
         $pluralSnake = Str::snake(Str::plural($name));
         $parent = $config['parent'] ?? 'system';
         $tableName = $config['table'] ?? ($config['type'] === 'plugin'
-            ? "plugin_{$config['plugin']}_{$pluralSnake}"
+            ? "p_{$pluginKebab}_{$pluralSnake}"
             : "admin_{$pluralSnake}");
         $modelName = $config['type'] === 'plugin' ? $name : "Admin{$name}";
         $controllerName = "{$name}Controller";
@@ -308,6 +308,7 @@ class CodeGeneratorController extends AdminController
         $order = $config['order'] ?? 90;
         $fields = $config['fields'] ?? [];
         $gridColumns = $config['grid_columns'] ?? [];
+        $indexes = $config['indexes'] ?? [];
         $plugin = $config['plugin'] ?? null;
         $pluginKebab = $plugin ? Str::kebab($plugin) : null;
 
@@ -326,6 +327,17 @@ class CodeGeneratorController extends AdminController
 
         // 生成迁移代码
         $migrationCode = $this->generateMigrationCode($tableName, $fields);
+
+        // 生成索引迁移代码
+        $indexMigrationCode = $this->generateIndexMigrationCode($tableName, $indexes);
+        if ($indexMigrationCode) {
+            // 将索引代码追加到迁移文件中
+            $migrationCode = str_replace(
+                "Schema::dropIfExists('{$tableName}');",
+                "});\n    }\n\n    /**\n     * 添加索引\n     */\n    public function down(): void\n    {\n        Schema::dropIfExists('{$tableName}');",
+                $migrationCode
+            );
+        }
 
         // 生成 Vue 页面代码
         $vueCode = $this->generateVueCode($parent, $kebabName, $name, $config['type'], $pluginKebab);
@@ -608,6 +620,58 @@ return new class extends Migration
     }
 };
 PHP;
+    }
+
+    /**
+     * 生成索引迁移代码
+     */
+    protected function generateIndexMigrationCode(string $tableName, array $indexes): string
+    {
+        if (empty($indexes)) {
+            return '';
+        }
+
+        $lines = [];
+        foreach ($indexes as $index) {
+            $fields = $index['fields'] ?? [];
+            if (empty($fields)) continue;
+
+            $type = $index['type'] ?? 'index';
+            $indexName = $index['name'] ?? '';
+
+            if (count($fields) === 1) {
+                // 单字段索引
+                $field = $fields[0];
+                if ($type === 'unique') {
+                    $line = "\$table->unique('{$field}'";
+                } elseif ($type === 'fulltext') {
+                    $line = "\$table->fullText('{$field}'";
+                } else {
+                    $line = "\$table->index('{$field}'";
+                }
+                if ($indexName) {
+                    $line .= ", '{$indexName}'";
+                }
+                $line .= ')';
+            } else {
+                // 复合索引
+                $fieldsStr = "['" . implode("', '", $fields) . "']";
+                if ($type === 'unique') {
+                    $line = "\$table->unique({$fieldsStr}";
+                } elseif ($type === 'fulltext') {
+                    $line = "\$table->fullText({$fieldsStr}";
+                } else {
+                    $line = "\$table->index({$fieldsStr}";
+                }
+                if ($indexName) {
+                    $line .= ", '{$indexName}'";
+                }
+                $line .= ')';
+            }
+            $lines[] = $line;
+        }
+
+        return implode(";\n            ", $lines);
     }
 
     protected function generateVueCode(string $parent, string $kebabName, string $name, string $type = 'core', ?string $pluginKebab = null): string

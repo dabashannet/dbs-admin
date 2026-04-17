@@ -144,6 +144,7 @@ class CodeGeneratorController extends AdminController
             'fillable' => 'nullable|array',
             'fields' => 'nullable|array',
             'grid_columns' => 'nullable|array',
+            'indexes' => 'nullable|array',
             'icon' => 'nullable|string',
             'order' => 'nullable|integer',
         ]);
@@ -167,6 +168,7 @@ class CodeGeneratorController extends AdminController
             'fillable' => 'nullable|array',
             'fields' => 'nullable|array',
             'grid_columns' => 'nullable|array',
+            'indexes' => 'nullable|array',
             'icon' => 'nullable|string',
             'order' => 'nullable|integer',
             'force' => 'nullable|boolean',
@@ -299,6 +301,8 @@ class CodeGeneratorController extends AdminController
         $kebabName = Str::kebab($config['name']);
         $pluralSnake = Str::snake(Str::plural($name));
         $parent = $config['parent'] ?? 'system';
+        $plugin = $config['plugin'] ?? null;
+        $pluginKebab = $plugin ? Str::kebab($plugin) : null;
         $tableName = $config['table'] ?? ($config['type'] === 'plugin'
             ? "p_{$pluginKebab}_{$pluralSnake}"
             : "admin_{$pluralSnake}");
@@ -309,8 +313,6 @@ class CodeGeneratorController extends AdminController
         $fields = $config['fields'] ?? [];
         $gridColumns = $config['grid_columns'] ?? [];
         $indexes = $config['indexes'] ?? [];
-        $plugin = $config['plugin'] ?? null;
-        $pluginKebab = $plugin ? Str::kebab($plugin) : null;
 
         // 判断是已有插件还是新插件
         $isNewPlugin = false;
@@ -331,12 +333,11 @@ class CodeGeneratorController extends AdminController
         // 生成索引迁移代码
         $indexMigrationCode = $this->generateIndexMigrationCode($tableName, $indexes);
         if ($indexMigrationCode) {
-            // 将索引代码追加到迁移文件中
-            $migrationCode = str_replace(
-                "Schema::dropIfExists('{$tableName}');",
-                "});\n    }\n\n    /**\n     * 添加索引\n     */\n    public function down(): void\n    {\n        Schema::dropIfExists('{$tableName}');",
-                $migrationCode
-            );
+            // 将索引代码追加到迁移文件的 Schema::create 块内
+            // 使用更精确的替换：在 $table->softDeletes(); 之后追加
+            $search = '$table->softDeletes();';
+            $replace = '$table->softDeletes();' . "\n\n            // 索引\n            {$indexMigrationCode};";
+            $migrationCode = str_replace($search, $replace, $migrationCode);
         }
 
         // 生成 Vue 页面代码
@@ -353,7 +354,8 @@ class CodeGeneratorController extends AdminController
         if ($config['type'] === 'plugin' && $plugin) {
             // 新插件才生成 plugin.json、ServiceProvider 等脚手架文件
             if ($isNewPlugin) {
-                $pluginJson = $this->generatePluginJson($plugin, $name, $tableName, $parent, $kebabName, $icon, $order);
+                $pluginTitle = $config['plugin_title'] ?? '';
+                $pluginJson = $this->generatePluginJson($plugin, $pluginTitle, $name, $tableName, $parent, $kebabName, $icon, $order);
                 $serviceProvider = $this->generatePluginServiceProvider($plugin, $name);
 
                 $pluginFiles['plugin_json'] = [
@@ -774,13 +776,14 @@ TS;
     /**
      * 生成插件 manifest（plugin.json）
      */
-    protected function generatePluginJson(string $plugin, string $name, string $tableName, string $parent, string $kebabName, string $icon, int $order): string
+    protected function generatePluginJson(string $plugin, string $pluginTitle, string $name, string $tableName, string $parent, string $kebabName, string $icon, int $order): string
     {
         $pluginStudly = Str::studly($plugin);
         $pluginKebab = Str::kebab($plugin);
+        $title = $pluginTitle ?: "{$pluginStudly} 插件";
         $json = [
             'name' => $pluginKebab,
-            'title' => "{$pluginStudly} 插件",
+            'title' => $title,
             'description' => "{$name} 管理插件",
             'version' => '1.0.0',
             'author' => 'Code Generator',
@@ -1060,12 +1063,54 @@ TS;
                 throw new \Exception("无法读取 plugin-{$pluginKebab}.ts 文件");
             }
 
-            // 匹配该插件 group 的 children 数组，在 ], 前追加
-            // 匹配：name: '{$pluginStudly}' ... children: [ ... ],
-            $pattern = "/(name:\s*'{$pluginStudly}'.*?children:\s*\[)(.*?)(\s+\],\s*\},)/s";
-            if (preg_match($pattern, $content, $matches)) {
-                $replacement = $matches[1] . $matches[2] . "\n        " . trim($childRouteCode) . "\n      " . $matches[3];
-                $content = preg_replace($pattern, $replacement, $content, 1);
+            // 逐行解析，找到 plugin group 的 children 数组，在 ], 前追加
+            $lines = explode("\n", $content);
+            $inGroup = false;
+            $groupFound = false;
+            $insertIndex = -1;
+            $childrenBracketFound = false;
+
+            foreach ($lines as $i => $line) {
+                $trimmed = trim($line);
+
+                // 检测是否进入目标 plugin group
+                if (!$groupFound && preg_match('/name:\s*\'' . preg_quote($pluginStudly, '/') . '\'/', $trimmed)) {
+                    $inGroup = true;
+                    continue;
+                }
+
+                if ($inGroup) {
+                    // 检测 children: [ 的开始
+                    if (!$childrenBracketFound && strpos($trimmed, 'children: [') !== false) {
+                        $childrenBracketFound = true;
+                        // 计算缩进，找到应该插入的位置
+                        continue;
+                    }
+
+                    if ($childrenBracketFound) {
+                        // 找到 children 数组的结束位置
+                        if (str_starts_with($trimmed, '],')) {
+                            $insertIndex = $i;
+                            break;
+                        }
+                    }
+
+                    // 如果遇到了同级或更浅的 }, 说明 children 数组结束了
+                    if ($trimmed === '},' || $trimmed === '},') {
+                        if (!$childrenBracketFound) {
+                            // 没有 children 数组，跳过这个 group
+                            $inGroup = false;
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            if ($insertIndex > 0) {
+                $indent = str_repeat(' ', 8);
+                $newLine = $indent . trim($childRouteCode);
+                array_splice($lines, $insertIndex, 0, [$newLine]);
+                $content = implode("\n", $lines);
             }
         }
 
@@ -1159,7 +1204,6 @@ TS;
     {
         $plugin = $config['plugin'];
         $pluginKebab = Str::kebab($plugin);
-        $pluginStudly = Str::studly($plugin);
         $name = Str::studly($config['name']);
         $kebabName = Str::kebab($config['name']);
         $basePath = base_path();
@@ -1210,11 +1254,12 @@ TS;
             $content = file_get_contents($routerPath);
             if ($content !== false) {
                 // 匹配并移除该资源的 child route
-                $pattern = "/\s*\{\s*path:\s*'{$kebabName}',.*?\},\n/s";
+                $escapedName = preg_quote($kebabName, '/');
+                $pattern = '/\s*\{\s*path:\s*\'' . $escapedName . '\',.*?\},\n/s';
                 $newContent = preg_replace($pattern, '', $content);
                 if ($newContent !== $content) {
                     // 检查该插件是否还有其他资源
-                    $hasOtherResources = preg_match("/path:\s*'{$kebabName}'/", $newContent);
+                    $hasOtherResources = preg_match("/path:\s*'{$escapedName}'/", $newContent);
                     if (!$hasOtherResources && $pluginKebab !== $kebabName) {
                         // 如果只剩下 index 页面，检查是否还有 index
                         $hasIndex = strpos($newContent, "path: 'index'") !== false;
@@ -1240,7 +1285,8 @@ TS;
             $content = file_get_contents($adminRoutesPath);
             if ($content !== false) {
                 // 移除包含该资源的路由行
-                $pattern = "/.*['\"].*[/]{$kebabName}['\"].*[\n\r]*/";
+                $escapedName = preg_quote($kebabName, '/');
+                $pattern = '/.*[\'"].*[/]' . $escapedName . '[\'"].*[\n\r]*/';
                 $newContent = preg_replace($pattern, '', $content);
                 // 检查是否还有有效路由（除了 PHP 标签和 Route::prefix）
                 $hasRoutes = preg_match("/Route::(get|post|put|delete|patch)/", $newContent);

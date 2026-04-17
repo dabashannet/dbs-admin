@@ -357,9 +357,10 @@ class CodeGeneratorController extends AdminController
         }
 
         // 迁移路径：插件放 plugin 自己的 database/migrations，核心放全局 database/migrations
+        $timestamp = date('Y_m_d_His');
         $migrationPath = $config['type'] === 'plugin'
-            ? "plugins/{$pluginKebab}/database/migrations/xxxx_xx_xx_xx_create_{$tableName}_table.php"
-            : "database/migrations/xxxx_xx_xx_xx_create_{$tableName}_table.php";
+            ? "plugins/{$pluginKebab}/database/migrations/{$timestamp}_create_{$tableName}_table.php"
+            : "database/migrations/{$timestamp}_create_{$tableName}_table.php";
 
         return [
             'files' => $files,
@@ -417,7 +418,7 @@ class {$controllerName} extends AdminController
 
     protected function grid(): Grid
     {
-        return Grid::make({$modelName}::query())
+        return Grid::make({$modelName}::class)
             {$gridColumnsCode}
             ->perPage(15);
     }
@@ -528,7 +529,7 @@ PHP;
     {
         $namespace = $type === 'plugin' ? "Plugins\\{$plugin}\\Models" : 'App\\Admin\\Models';
         $fillableCode = empty($fillable) ? '//' : "'" . implode("',\n        '", $fillable) . "',";
-        $baseModel = $type === 'plugin' ? 'Illuminate\\Database\\Eloquent\\Model' : 'Dabashan\\DbsAdmin\\Models\\BaseAdminModel';
+        $baseModel = $type === 'plugin' ? '\\Illuminate\\Database\\Eloquent\\Model' : '\\Dabashan\\DbsAdmin\\Models\\BaseAdminModel';
 
         return <<<PHP
 <?php
@@ -989,9 +990,10 @@ VUE;
         $files = [];
         $files[] = $this->getControllerPath($name, $type, $plugin);
         $files[] = $this->getModelPath($name, $type, $plugin);
+        $timestamp = date('Y_m_d_His');
         $migrationPath = $type === 'plugin'
-            ? "plugins/{$pluginKebab}/database/migrations/xxxx_xx_xx_xx_create_{$table}_table.php"
-            : "database/migrations/xxxx_xx_xx_xx_create_{$table}_table.php";
+            ? "plugins/{$pluginKebab}/database/migrations/{$timestamp}_create_{$table}_table.php"
+            : "database/migrations/{$timestamp}_create_{$table}_table.php";
         $files[] = $migrationPath;
         $files[] = $this->getVuePath($parent, $kebabName, $type, $plugin);
         $files[] = $this->getRouterPath($parent, $kebabName, $type, $pluginKebab);

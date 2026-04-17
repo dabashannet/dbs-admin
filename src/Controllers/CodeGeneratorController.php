@@ -596,159 +596,25 @@ PHP;
     {
         // 插件模式下使用 Arco Design 组件，生成到插件视图目录
         if ($type === 'plugin' && $pluginKebab) {
-            return <<<VUE
-<template>
-  <div class="{$kebabName}-container">
-    <a-card class="general-card">
-      <template #title>{{ \$t('menu.{$parent}.{$kebabName}') }}</template>
+            $stubPath = __DIR__ . '/../../stubs/vue-plugin.stub';
+            $template = file_get_contents($stubPath);
+            if ($template === false) {
+                throw new \Exception('无法读取 vue-plugin.stub 模板文件');
+            }
 
-      <!-- 筛选区域 -->
-      <a-form layout="inline" class="filter-form">
-        <a-form-item field="keyword" label="关键词">
-          <a-input v-model="queryParams.keyword" placeholder="请输入关键词" allow-clear @clear="handleSearch" />
-        </a-form-item>
-        <a-form-item>
-          <a-space>
-            <a-button type="primary" @click="handleSearch">
-              <template #icon><icon-search /></template> 搜索
-            </a-button>
-            <a-button @click="handleReset">
-              <template #icon><icon-refresh /></template> 重置
-            </a-button>
-          </a-space>
-        </a-form-item>
-      </a-form>
+            $now = date('Y-m-d H:i:s');
+            $itemType = $name . 'Item';
 
-      <!-- 操作按钮 -->
-      <div class="action-bar">
-        <a-button type="primary" @click="handleAdd">
-          <template #icon><icon-plus /></template> 新增{$name}
-        </a-button>
-      </div>
+            $replacements = [
+                '{{now}}' => $now,
+                '{{name}}' => $name,
+                '{{itemType}}' => $itemType,
+                '{{pluginKebab}}' => $pluginKebab,
+                '{{parent}}' => $parent,
+                '{{kebabName}}' => $kebabName,
+            ];
 
-      <!-- 数据表格 -->
-      <a-table
-        :columns="columns"
-        :data="tableData"
-        :loading="loading"
-        :pagination="pagination"
-        @page-change="handlePageChange"
-      >
-        <template #actions="{ record }">
-          <a-space>
-            <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
-            <a-popconfirm content="确定删除?" @ok="handleDelete(record)">
-              <a-button type="text" status="danger" size="small">删除</a-button>
-            </a-popconfirm>
-          </a-space>
-        </template>
-      </a-table>
-    </a-card>
-
-    <!-- 新增/编辑弹窗 -->
-    <a-modal
-      v-model:visible="modalVisible"
-      :title="modalTitle"
-      @ok="handleSubmit"
-      @cancel="modalVisible = false"
-    >
-      <a-form ref="formRef" :model="formData" auto-label-width>
-        <a-form-item field="name" label="名称" :rules="[{ required: true, message: '请输入名称' }]">
-          <a-input v-model="formData.name" placeholder="请输入名称" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
-  </div>
-</template>
-
-<script lang="ts" setup>
-  import { ref, reactive, onMounted } from 'vue';
-  import { Message } from '@arco-design/web-vue';
-  import axios from 'axios';
-
-  const columns = [
-    { title: 'ID', dataIndex: 'id', width: 80 },
-    { title: '名称', dataIndex: 'name' },
-    { title: '创建时间', dataIndex: 'created_at', width: 180 },
-    { title: '操作', slotName: 'actions', width: 150 },
-  ];
-
-  const tableData = ref([]);
-  const loading = ref(false);
-  const pagination = reactive({ current: 1, pageSize: 15, total: 0, showTotal: true });
-  const queryParams = reactive({ keyword: '' });
-
-  const modalVisible = ref(false);
-  const modalTitle = ref('新增{$name}');
-  const formData = reactive({ id: null, name: '' });
-  const formRef = ref();
-
-  async function fetchData() {
-    loading.value = true;
-    try {
-      const res = await axios.get('/plugin/{$pluginKebab}/admin/{$parent}/{$kebabName}', {
-        params: { ...queryParams, page: pagination.current },
-      });
-      tableData.value = res.data.data || [];
-      pagination.total = res.data.total || 0;
-    } finally {
-      loading.value = false;
-    }
-  }
-
-  function handleSearch() { pagination.current = 1; fetchData(); }
-  function handleReset() { queryParams.keyword = ''; handleSearch(); }
-  function handlePageChange(page: number) { pagination.current = page; fetchData(); }
-
-  function handleAdd() {
-    modalTitle.value = '新增{$name}';
-    Object.assign(formData, { id: null, name: '' });
-    modalVisible.value = true;
-  }
-
-  function handleEdit(record: any) {
-    modalTitle.value = '编辑{$name}';
-    Object.assign(formData, record);
-    modalVisible.value = true;
-  }
-
-  async function handleSubmit() {
-    const errors = await formRef.value?.validate();
-    if (errors) return;
-    try {
-      if (formData.id) {
-        await axios.put('/plugin/{$pluginKebab}/admin/{$parent}/{$kebabName}/' + formData.id, formData);
-        Message.success('更新成功');
-      } else {
-        await axios.post('/plugin/{$pluginKebab}/admin/{$parent}/{$kebabName}', formData);
-        Message.success('创建成功');
-      }
-      modalVisible.value = false;
-      fetchData();
-    } catch (e: any) {
-      Message.error(e.response?.data?.msg || '操作失败');
-    }
-  }
-
-  async function handleDelete(record: any) {
-    try {
-      await axios.delete('/plugin/{$pluginKebab}/admin/{$parent}/{$kebabName}/' + record.id);
-      Message.success('删除成功');
-      fetchData();
-    } catch (e: any) {
-      Message.error(e.response?.data?.msg || '删除失败');
-    }
-  }
-
-  onMounted(fetchData);
-</script>
-
-<style scoped>
-  .{$kebabName}-container { padding: 20px; }
-  .filter-form { margin-bottom: 16px; }
-  .action-bar { margin-bottom: 16px; }
-</style>
-VUE;
+            return str_replace(array_keys($replacements), array_values($replacements), $template);
         }
 
         // 核心模块
@@ -770,27 +636,21 @@ VUE;
 
     protected function generateRouterCode(string $parent, string $kebabName, string $name, string $icon, int $order, string $type = 'core', ?string $pluginKebab = null): string
     {
-        // 插件模式：路由由动态加载器处理，不需要生成静态路由文件
-        // 这里生成一个占位路由，实际路由在插件加载时动态注册
+        // 插件模式：返回 child route 片段（追加到 plugin.ts）
         if ($type === 'plugin' && $pluginKebab) {
             $pluginStudly = Str::studly($pluginKebab);
             return <<<TS
-// 插件路由由 dynamic-plugin-loader.ts 动态注册
-// 此文件仅作为类型声明参考
-import { AppRouteRecordRaw } from '../types';
-
-const {$name}Route: AppRouteRecordRaw = {
-  path: '/plugin/{$pluginKebab}/{$kebabName}',
-  name: 'Plugin{$pluginStudly}{$name}',
+{
+  path: '{$kebabName}',
+  name: '{$pluginStudly}{$name}',
   component: () => import('@/views/plugin/{$pluginKebab}/{$kebabName}/index.vue'),
   meta: {
-    locale: 'menu.plugin.{$kebabName}',
+    locale: 'menu.plugin.{$pluginKebab}.{$kebabName}',
     requiresAuth: true,
     roles: ['*'],
+    hideInMenu: true,
   },
-};
-
-export default {$name}Route;
+},
 TS;
         }
 
@@ -1029,8 +889,109 @@ VUE;
     protected function getRouterPath(string $parent, string $kebabName, string $type, ?string $pluginKebab = null): string
     {
         return $type === 'plugin'
-            ? "web/src/router/routes/modules/plugin-{$pluginKebab}-{$kebabName}.ts"
+            ? "web/src/router/routes/modules/plugin-{$pluginKebab}.ts"
             : "web/src/router/routes/modules/{$parent}-{$kebabName}.ts";
+    }
+
+    /**
+     * 将插件路由追加到 plugin-{pluginKebab}.ts 文件
+     */
+    protected function appendPluginRouteToPluginTs(string $pluginKebab, string $childRouteCode, bool $isNewPlugin, string $name): string
+    {
+        $pluginTsPath = base_path('laravel12/web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts');
+        $pluginStudly = Str::studly($pluginKebab);
+
+        if ($isNewPlugin || !file_exists($pluginTsPath)) {
+            // 新插件：创建独立的 plugin-{pluginKebab}.ts 文件
+            $content = <<<TS
+/*
+ * @Author: Author dabashan.cc
+ * @Date: {$this->formatDate()}
+ * @LastEditTime: {$this->formatDate()}
+ * @LastEditors: LastEditors
+ * @Copyright: Copyright (c) 2026 by Dabashan.cc, All Rights Reserved.
+ */
+import { DEFAULT_LAYOUT } from '../base';
+import { AppRouteRecordRaw } from '../types';
+
+const PLUGIN: AppRouteRecordRaw = {
+  path: '/plugin',
+  name: 'Plugin',
+  component: DEFAULT_LAYOUT,
+  redirect: '/plugin/index',
+  meta: {
+    locale: 'menu.plugin',
+    icon: 'icon-apps',
+    requiresAuth: true,
+    order: 80,
+    hideChildrenInMenu: true,
+  },
+  children: [
+    // {$pluginStudly} Plugin
+    {
+      path: '{$pluginKebab}',
+      name: '{$pluginStudly}',
+      component: () => import('@/views/plugin/components/PluginLayout.vue'),
+      redirect: '/plugin/{$pluginKebab}/index',
+      meta: {
+        locale: 'menu.plugin.{$pluginKebab}',
+        requiresAuth: true,
+        roles: ['*'],
+        hideInMenu: true,
+      },
+      children: [
+        {
+          path: 'index',
+          name: '{$pluginStudly}Index',
+          component: () => import('@/views/plugin/{$pluginKebab}/index.vue'),
+          meta: {
+            locale: 'menu.plugin.{$pluginKebab}.config',
+            requiresAuth: true,
+            roles: ['*'],
+            hideInMenu: true,
+          },
+        },
+        {$childRouteCode}
+      ],
+    },
+  ],
+};
+
+export default PLUGIN;
+TS;
+        } else {
+            // 已有插件：在该文件的 plugin group children 数组末尾追加
+            $content = file_get_contents($pluginTsPath);
+            if ($content === false) {
+                throw new \Exception("无法读取 plugin-{$pluginKebab}.ts 文件");
+            }
+
+            // 匹配该插件 group 的 children 数组，在 ], 前追加
+            // 匹配：name: '{$pluginStudly}' ... children: [ ... ],
+            $pattern = "/(name:\s*'{$pluginStudly}'.*?children:\s*\[)(.*?)(\s+\],\s*\},)/s";
+            if (preg_match($pattern, $content, $matches)) {
+                $replacement = $matches[1] . $matches[2] . "\n        " . trim($childRouteCode) . "\n      " . $matches[3];
+                $content = preg_replace($pattern, $replacement, $content, 1);
+            }
+        }
+
+        // 确保目录存在
+        $dir = dirname($pluginTsPath);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        $result = file_put_contents($pluginTsPath, $content);
+        if ($result === false) {
+            throw new \Exception("无法写入 plugin-{$pluginKebab}.ts 文件");
+        }
+
+        return $pluginTsPath;
+    }
+
+    protected function formatDate(): string
+    {
+        return date('Y-m-d H:i:s');
     }
 
     protected function doGenerate(array $config): array
@@ -1038,8 +999,34 @@ VUE;
         $preview = $this->generatePreview($config);
         $basePath = base_path();
         $writtenFiles = [];
+        $isPlugin = $config['type'] === 'plugin';
+        $pluginKebab = $isPlugin ? Str::kebab($config['plugin'] ?? '') : null;
+
+        // 判断是否是已有插件
+        $isNewPlugin = false;
+        if ($isPlugin && $config['plugin']) {
+            $existingPlugins = $this->getExistingPluginNames();
+            $isNewPlugin = !in_array($pluginKebab, $existingPlugins, true);
+        }
+
+        // 提取路由内容（插件模式下是 child route 片段）
+        $routerCode = $preview['preview']['router']['content'] ?? '';
 
         foreach ($preview['preview'] as $key => $fileInfo) {
+            // 插件模式下，路由文件特殊处理：追加到 plugin.ts
+            if ($key === 'router' && $isPlugin && $pluginKebab) {
+                $routerPath = $this->appendPluginRouteToPluginTs(
+                    $pluginKebab,
+                    $routerCode,
+                    $isNewPlugin,
+                    $config['name']
+                );
+                // 返回相对路径（相对于 laravel12/）
+                $relativePath = str_replace($basePath . '/', '', $routerPath);
+                $writtenFiles[] = $relativePath;
+                continue;
+            }
+
             $path = $fileInfo['path'];
             $content = $fileInfo['content'];
             $fullPath = $basePath . '/' . $path;
@@ -1067,7 +1054,7 @@ VUE;
 
         return [
             'files' => $writtenFiles,
-            'message' => '代码已生成',
+            'message' => '代码生成成功',
         ];
     }
 }

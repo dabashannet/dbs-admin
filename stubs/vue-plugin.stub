@@ -1,0 +1,175 @@
+<!--
+ * @Author: Author lvtu@dabashan.cc
+ * @Date: {{now}}
+ * @LastEditTime: {{now}}
+ * @LastEditors: LastEditors
+ * @Copyright: Copyright (c) 2025 by Dabashan.cc, All Rights Reserved.
+-->
+<template>
+  <div class="container">
+    <a-card class="general-card" title="{{name}}管理">
+      <template #extra>
+        <a-button type="primary" @click="handleAdd">
+          <template #icon><icon-plus /></template>
+          新增
+        </a-button>
+      </template>
+      <a-table
+        :columns="columns"
+        :data="tableData"
+        :loading="loading"
+        :pagination="pagination"
+        @page-change="onPageChange"
+      >
+        <template #actions="{ record }">
+          <a-space>
+            <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
+            <a-popconfirm content="确定要删除吗？" @ok="handleDelete(record.id)">
+              <a-button type="text" status="danger" size="small">删除</a-button>
+            </a-popconfirm>
+          </a-space>
+        </template>
+      </a-table>
+    </a-card>
+
+    <!-- 新增/编辑弹窗 -->
+    <a-modal
+      v-model:visible="modalVisible"
+      :title="isEdit ? '编辑数据' : '新增数据'"
+      @ok="handleSubmit"
+      @cancel="handleCancel"
+    >
+      <a-form ref="formRef" :model="formData" layout="vertical">
+        <a-form-item field="name" label="名称" :rules="[{ required: true, message: '请输入名称' }]">
+          <a-input v-model="formData.name" placeholder="请输入名称" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+  </div>
+</template>
+
+<script lang="ts" setup>
+  import { ref, reactive, onMounted } from 'vue';
+  import { Message } from '@arco-design/web-vue';
+  import { IconPlus } from '@arco-design/web-vue/es/icon';
+  import axios from 'axios';
+
+  interface {{itemType}} {
+    id: number;
+    name: string;
+    created_at: string;
+  }
+
+  const API_BASE = '/plugin/{{pluginKebab}}/admin/{{parent}}/{{kebabName}}';
+
+  const loading = ref(false);
+  const tableData = ref<{{itemType}}[]>([]);
+  const modalVisible = ref(false);
+  const isEdit = ref(false);
+  const editId = ref<number | null>(null);
+  const formRef = ref();
+
+  const pagination = reactive({
+    current: 1,
+    pageSize: 15,
+    total: 0,
+  });
+
+  const formData = reactive({
+    name: '',
+  });
+
+  const columns = [
+    { title: 'ID', dataIndex: 'id', width: 80 },
+    { title: '名称', dataIndex: 'name' },
+    { title: '创建时间', dataIndex: 'created_at', width: 180 },
+    { title: '操作', slotName: 'actions', width: 150, fixed: 'right' },
+  ];
+
+  const fetchData = async () => {
+    loading.value = true;
+    try {
+      const res = await axios.get(API_BASE, {
+        params: {
+          page: pagination.current,
+          per_page: pagination.pageSize,
+        },
+      });
+      const data = res.data;
+      const result = data?.data || data;
+      tableData.value = result.data || result || [];
+      pagination.total = result.total || tableData.value.length;
+    } catch (err) {
+      Message.error('获取数据失败');
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const onPageChange = (page: number) => {
+    pagination.current = page;
+    fetchData();
+  };
+
+  const resetForm = () => {
+    formData.name = '';
+    editId.value = null;
+    isEdit.value = false;
+  };
+
+  const handleAdd = () => {
+    resetForm();
+    modalVisible.value = true;
+  };
+
+  const handleEdit = (record: {{itemType}}) => {
+    isEdit.value = true;
+    editId.value = record.id;
+    formData.name = record.name;
+    modalVisible.value = true;
+  };
+
+  const handleSubmit = async () => {
+    try {
+      const valid = await formRef.value?.validate();
+      if (valid) return;
+
+      if (isEdit.value && editId.value) {
+        await axios.put(API_BASE + '/' + editId.value, formData);
+        Message.success('更新成功');
+      } else {
+        await axios.post(API_BASE, formData);
+        Message.success('创建成功');
+      }
+      modalVisible.value = false;
+      fetchData();
+    } catch (err) {
+      Message.error(isEdit.value ? '更新失败' : '创建失败');
+    }
+  };
+
+  const handleCancel = () => {
+    modalVisible.value = false;
+    resetForm();
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await axios.delete(API_BASE + '/' + id);
+      Message.success('删除成功');
+      fetchData();
+    } catch (err) {
+      Message.error('删除失败');
+    }
+  };
+
+  onMounted(() => {
+    fetchData();
+  });
+</script>
+
+<style scoped lang="less">
+  .container {
+    padding: 0 20px 20px 20px;
+  }
+</style>

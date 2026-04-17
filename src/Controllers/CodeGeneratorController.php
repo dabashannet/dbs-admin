@@ -144,6 +144,7 @@ class CodeGeneratorController extends AdminController
             'fillable' => 'nullable|array',
             'fields' => 'nullable|array',
             'grid_columns' => 'nullable|array',
+            'filters' => 'nullable|array',
             'indexes' => 'nullable|array',
             'icon' => 'nullable|string',
             'order' => 'nullable|integer',
@@ -168,6 +169,7 @@ class CodeGeneratorController extends AdminController
             'fillable' => 'nullable|array',
             'fields' => 'nullable|array',
             'grid_columns' => 'nullable|array',
+            'filters' => 'nullable|array',
             'indexes' => 'nullable|array',
             'icon' => 'nullable|string',
             'order' => 'nullable|integer',
@@ -322,7 +324,7 @@ class CodeGeneratorController extends AdminController
         }
 
         // 生成 Controller 代码
-        $controllerCode = $this->generateControllerCode($name, $controllerName, $modelName, $config['type'], $fields, $gridColumns, $plugin);
+        $controllerCode = $this->generateControllerCode($name, $controllerName, $modelName, $config['type'], $fields, $gridColumns, $config['filters'] ?? [], $plugin);
 
         // 生成 Model 代码
         $modelCode = $this->generateModelCode($modelName, $tableName, $config['fillable'] ?? [], $config['type'], $plugin);
@@ -421,7 +423,7 @@ class CodeGeneratorController extends AdminController
         ];
     }
 
-    protected function generateControllerCode(string $name, string $controllerName, string $modelName, string $type, array $fields, array $gridColumns, ?string $plugin = null): string
+    protected function generateControllerCode(string $name, string $controllerName, string $modelName, string $type, array $fields, array $gridColumns, array $filters = [], ?string $plugin = null): string
     {
         $namespace = $type === 'plugin'
             ? "Plugins\\{$plugin}\\Admin\\Controllers"
@@ -433,6 +435,7 @@ class CodeGeneratorController extends AdminController
 
         $gridColumnsCode = $this->formatGridColumns($gridColumns, $fields);
         $formFieldsCode = $this->formFields($fields);
+        $filterCode = $this->formatGridFilters($filters, $fields);
 
         return <<<PHP
 <?php
@@ -455,6 +458,11 @@ class {$controllerName} extends AdminController
             ->perPage(15);
     }
 
+    protected function configureActions(Grid \$grid): void
+    {
+        {$filterCode}
+    }
+
     protected function form(): Form
     {
         return Form::make({$modelName}::class)
@@ -472,23 +480,170 @@ PHP;
 
         $lines = [];
         foreach ($gridColumns as $col) {
-            $line = "->column('{$col['key']}', '{$col['label']}')";
+            $key = $col['key'] ?? '';
+            $label = $col['label'] ?? $key;
+            $line = "->column('{$key}', '{$label}')";
+
+            // 可排序
             if (!empty($col['sortable'])) {
                 $line .= '->sortable()';
             }
+            // 可搜索
             if (!empty($col['searchable'])) {
                 $line .= '->searchable()';
             }
-            if (!empty($col['display_type']) && $col['display_type'] !== 'text') {
-                $line .= "->{$col['display_type']}()";
+            // 隐藏列
+            if (!empty($col['hidden'])) {
+                $line .= '->hidden()';
             }
+            // 宽度
             if (!empty($col['width'])) {
                 $line .= "->width('{$col['width']}')";
             }
+            // 对齐方式
+            if (!empty($col['align'])) {
+                $line .= "->align('{$col['align']}')";
+            }
+            // 显示类型（支持所有 Column 方法）
+            $displayType = $col['display_type'] ?? '';
+            if ($displayType && $displayType !== 'text') {
+                $displayOptions = $col['display_options'] ?? [];
+                $line .= $this->formatDisplayType($displayType, $displayOptions);
+            }
+            // 默认值
+            if (!empty($col['default'])) {
+                $line .= "->default('{$col['default']}')";
+            }
+            // 字数限制
+            if (!empty($col['limit']) && is_numeric($col['limit'])) {
+                $line .= "->limit({$col['limit']})";
+            }
+            // 前缀
+            if (!empty($col['prefix'])) {
+                $line .= "->prefix('{$col['prefix']}')";
+            }
+            // 后缀
+            if (!empty($col['suffix'])) {
+                $line .= "->suffix('{$col['suffix']}')";
+            }
+            // 小数位数
+            if (isset($col['decimals']) && is_numeric($col['decimals'])) {
+                $line .= "->decimals({$col['decimals']})";
+            }
+            // 自动换行
+            if (!empty($col['wrap'])) {
+                $line .= '->wrap()';
+            }
+            // 可切换（toggleable）
+            if (!empty($col['toggleable'])) {
+                $line .= '->toggleable()';
+            }
+
             $lines[] = $line;
         }
 
         return implode("\n            ", $lines);
+    }
+
+    /**
+     * 格式化列显示类型（支持 Column 类的所有显示方法）
+     */
+    protected function formatDisplayType(string $type, array $options = []): string
+    {
+        return match ($type) {
+            // 徽章：badge(['颜色映射'], '变体')
+            'badge' => '->badge(' . (!empty($options['colors']) ? var_export($options['colors'], true) . (isset($options['variant']) ? ", '{$options['variant']}'" : '') : (isset($options['variant']) ? "[], '{$options['variant']}'" : '[]')) . ')',
+
+            // 开关：toggle()
+            'switch', 'toggle' => '->toggle()',
+
+            // 图片：image(宽, 高, 圆形)
+            'image' => '->image(' . ($options['width'] ?? 40) . ', ' . ($options['height'] ?? 40) . (isset($options['circle']) && $options['circle'] ? ', true' : '') . ')',
+
+            // 标签组：tags('分隔符')
+            'tags' => !empty($options['separator']) ? "->tags('{$options['separator']}')" : '->tags()',
+
+            // 进度条：progress(最大值, 显示文字)
+            'progress' => '->progress(' . ($options['max'] ?? 100) . ', ' . (isset($options['showText']) && !$options['showText'] ? 'false' : 'true') . ')',
+
+            // 数值条：bar()
+            'bar' => '->bar()',
+
+            // 色块：color()
+            'color' => '->color()',
+
+            // 可复制：copyable()
+            'copyable' => '->copyable()',
+
+            // 圆点状态：dot()
+            'dot' => '->dot()',
+
+            // 日期：date('格式')
+            'date' => !empty($options['format']) ? "->date('{$options['format']}')" : '->date()',
+
+            // 日期时间：datetime('格式')
+            'datetime' => !empty($options['format']) ? "->datetime('{$options['format']}')" : '->datetime()',
+
+            // 金额：money('符号', 小数位)
+            'money' => '->money(' . (!empty($options['symbol']) ? "'{$options['symbol']}', " : '') . ($options['decimals'] ?? 2) . ')',
+
+            // 计数：count()
+            'count' => '->count()',
+
+            default => '',
+        };
+    }
+
+    protected function formatGridFilters(array $filters, array $fields): string
+    {
+        if (empty($filters)) {
+            return '// 无筛选器';
+        }
+
+        $lines = [];
+        foreach ($filters as $filter) {
+            $key = $filter['key'] ?? '';
+            $label = $filter['label'] ?? $key;
+            $type = $filter['type'] ?? 'like';
+
+            $line = "\$grid->filter('{$key}', '{$label}', '{$type}')";
+
+            // 选项数据（用于 select/equal 类型）
+            if (!empty($filter['options'])) {
+                $options = $filter['options'];
+                if (is_string($options)) {
+                    $decoded = json_decode($options, true);
+                    if (is_array($decoded)) {
+                        $optionsStr = var_export($decoded, true);
+                        $line .= "->options({$optionsStr})";
+                    }
+                } elseif (is_array($options)) {
+                    $optionsStr = var_export($options, true);
+                    $line .= "->options({$optionsStr})";
+                }
+            }
+            // 默认值
+            if (isset($filter['default']) && $filter['default'] !== '') {
+                $defaultVal = is_string($filter['default']) ? "'{$filter['default']}'" : $filter['default'];
+                $line .= "->default({$defaultVal})";
+            }
+            // 占位文本
+            if (!empty($filter['placeholder'])) {
+                $line .= "->placeholder('{$filter['placeholder']}')";
+            }
+            // 多选模式
+            if (!empty($filter['multiple'])) {
+                $line .= '->multiple()';
+            }
+
+            $lines[] = $line . ';';
+        }
+
+        if (empty($lines)) {
+            return '// 无筛选器';
+        }
+
+        return implode("\n        ", $lines);
     }
 
     protected function formFields(array $fields): string
@@ -875,63 +1030,36 @@ Route::prefix('plugin/{$plugin}/admin')
         Route::get('{$parent}/{$kebabName}/{id}', [{$name}Controller::class, 'show']);
         Route::put('{$parent}/{$kebabName}/{id}', [{$name}Controller::class, 'update']);
         Route::delete('{$parent}/{$kebabName}/{id}', [{$name}Controller::class, 'destroy']);
+        // 元数据和表单 Schema
+        Route::get('{$parent}/{$kebabName}/grid-meta', [{$name}Controller::class, 'gridMeta']);
+        Route::get('{$parent}/{$kebabName}/form-schema', [{$name}Controller::class, 'formSchema']);
+        // 批量操作和状态切换
+        Route::post('{$parent}/{$kebabName}/batch-destroy', [{$name}Controller::class, 'batchDestroy']);
+        Route::post('{$parent}/{$kebabName}/{id}/toggle', [{$name}Controller::class, 'toggle']);
     });
 PHP;
     }
 
     /**
-     * 生成业务端 Vue 页面（插件前台）
+     * 生成业务端 Vue 页面（插件后台管理）
+     * 使用 DynamicTable 组件自动读取后端元数据渲染表格、筛选器、操作等
      */
     protected function generateBusinessVueCode(string $plugin, string $kebabName, string $name): string
     {
         return <<<VUE
 <template>
   <div class="container">
-    <a-card class="general-card" title="{$name}管理">
-      <a-table :columns="columns" :data="tableData" :loading="loading">
-        <template #actions="{ record }">
-          <a-space>
-            <a-button type="text" size="small" @click="viewDetail(record)">查看</a-button>
-          </a-space>
-        </template>
-      </a-table>
-    </a-card>
+    <DynamicCrud
+      api-prefix="/plugin/{$plugin}/admin/{$kebabName}"
+      :breadcrumb="['menu.plugin', '{$name}管理']"
+      add-title="新增{$name}"
+      edit-title="编辑{$name}"
+    />
   </div>
 </template>
 
 <script lang="ts" setup>
-  import { ref, onMounted } from 'vue';
-  import axios from 'axios';
-
-  const columns = [
-    { title: 'ID', dataIndex: 'id', width: 80 },
-    { title: '名称', dataIndex: 'name' },
-    { title: '创建时间', dataIndex: 'created_at', width: 180 },
-    { title: '操作', slotName: 'actions', width: 150 },
-  ];
-
-  const tableData = ref<any[]>([]);
-  const loading = ref(false);
-
-  const fetchData = async () => {
-    loading.value = true;
-    try {
-      const res = await axios.get('/plugin/{$plugin}/{$kebabName}');
-      tableData.value = res.data.data || [];
-    } catch (err) {
-      // 忽略错误
-    } finally {
-      loading.value = false;
-    }
-  };
-
-  const viewDetail = (record: any) => {
-    // TODO: 实现详情查看逻辑
-  };
-
-  onMounted(() => {
-    fetchData();
-  });
+  import DynamicCrud from '@/components/dynamic/DynamicCrud.vue';
 </script>
 
 <style scoped lang="less">

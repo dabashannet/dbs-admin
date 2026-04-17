@@ -18,6 +18,7 @@
           :xl="4"
         >
           <a-form-item :label="filter.title" hide-label>
+            <!-- 模糊搜索 -->
             <a-input
               v-if="filter.type === 'like'"
               v-model="filterValues[filter.key]"
@@ -25,32 +26,55 @@
               allow-clear
               @press-enter="handleSearch"
             />
+            <!-- 下拉选择/精确匹配 -->
             <a-select
               v-else-if="filter.type === 'select' || filter.type === 'equal'"
               v-model="filterValues[filter.key]"
               :placeholder="filter.placeholder || `选择${filter.title}`"
               allow-clear
+              :multiple="filter.multiple"
               :options="filter.options ? Object.entries(filter.options).map(([v, l]) => ({ value: v, label: l })) : []"
               @change="handleSearch"
             />
+            <!-- 日期区间 -->
             <a-range-picker
               v-else-if="filter.type === 'between_date'"
               v-model="filterValues[filter.key]"
               style="width: 100%"
               @change="handleSearch"
             />
+            <!-- 数值区间 -->
+            <a-range-picker
+              v-else-if="filter.type === 'between'"
+              v-model="filterValues[filter.key]"
+              style="width: 100%"
+              @change="handleSearch"
+            />
+            <!-- 大于 -->
             <a-input-number
               v-else-if="filter.type === 'gt'"
               v-model="filterValues[filter.key]"
               :placeholder="`大于${filter.title}`"
               @press-enter="handleSearch"
             />
+            <!-- 小于 -->
             <a-input-number
               v-else-if="filter.type === 'lt'"
               v-model="filterValues[filter.key]"
               :placeholder="`小于${filter.title}`"
               @press-enter="handleSearch"
             />
+            <!-- 多选（IN） -->
+            <a-select
+              v-else-if="filter.type === 'in'"
+              v-model="filterValues[filter.key]"
+              :placeholder="filter.placeholder || `选择${filter.title}`"
+              allow-clear
+              multiple
+              :options="filter.options ? Object.entries(filter.options).map(([v, l]) => ({ value: v, label: l })) : []"
+              @change="handleSearch"
+            />
+            <!-- 默认输入框 -->
             <a-input
               v-else
               v-model="filterValues[filter.key]"

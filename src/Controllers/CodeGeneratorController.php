@@ -357,8 +357,10 @@ class CodeGeneratorController extends AdminController
             // 新插件才生成 plugin.json、ServiceProvider 等脚手架文件
             if ($isNewPlugin) {
                 $pluginTitle = $config['plugin_title'] ?? '';
+                $pluginStudly = Str::studly($plugin);
                 $pluginJson = $this->generatePluginJson($plugin, $pluginTitle, $name, $tableName, $parent, $kebabName, $icon, $order);
                 $serviceProvider = $this->generatePluginServiceProvider($plugin, $name);
+                $pluginIndexVue = $this->generatePluginIndexVue($pluginKebab, $pluginTitle ?: $pluginStudly);
 
                 $pluginFiles['plugin_json'] = [
                     'path' => "plugins/{$pluginKebab}/plugin.json",
@@ -368,9 +370,14 @@ class CodeGeneratorController extends AdminController
                     'path' => "plugins/{$pluginKebab}/PluginServiceProvider.php",
                     'content' => $serviceProvider,
                 ];
+                $pluginFiles['plugin_index_vue'] = [
+                    'path' => "web/src/views/plugin/{$pluginKebab}/index.vue",
+                    'content' => $pluginIndexVue,
+                ];
 
                 $files[] = "plugins/{$pluginKebab}/plugin.json";
                 $files[] = "plugins/{$pluginKebab}/PluginServiceProvider.php";
+                $files[] = "web/src/views/plugin/{$pluginKebab}/index.vue";
             }
 
             // 无论新旧都生成 Admin 路由文件和业务端页面
@@ -382,12 +389,12 @@ class CodeGeneratorController extends AdminController
                 'content' => $adminRoutes,
             ];
             $pluginFiles['business_vue'] = [
-                'path' => "web/src/views/plugin/{$pluginKebab}/{$kebabName}/index.vue",
+                'path' => "web/src/views/plugin/{$pluginKebab}/{$kebabName}.vue",
                 'content' => $businessVue,
             ];
 
             $files[] = "plugins/{$pluginKebab}/Admin/routes.php";
-            $files[] = "web/src/views/plugin/{$pluginKebab}/{$kebabName}/index.vue";
+            $files[] = "web/src/views/plugin/{$pluginKebab}/{$kebabName}.vue";
         }
 
         // 迁移路径：插件放 plugin 自己的 database/migrations，核心放全局 database/migrations
@@ -957,11 +964,16 @@ TS;
                 [
                     'title' => "{$name}管理",
                     'icon' => $icon,
-                    'uri' => "{$parent}/{$kebabName}",
+                    'uri' => "admin/{$kebabName}",
                 ],
             ],
             'permissions' => [
-                "{$parent}.{$kebabName}",
+                [
+                    'slug' => "{$pluginKebab}.{$kebabName}",
+                    'name' => "{$name}管理",
+                    'http_method' => [],
+                    'http_path' => "/plugin/{$pluginKebab}/admin/{$kebabName}/*",
+                ],
             ],
         ];
 
@@ -1013,6 +1025,7 @@ PHP;
     protected function generatePluginAdminRoutes(string $plugin, string $name, string $parent, string $kebabName): string
     {
         $pluginStudly = Str::studly($plugin);
+        $pluginKebab = Str::kebab($plugin);
         $controllerNamespace = "Plugins\\{$pluginStudly}\\Admin\\Controllers\\{$name}Controller";
 
         return <<<PHP
@@ -1021,51 +1034,261 @@ PHP;
 use Illuminate\\Support\\Facades\\Route;
 use {$controllerNamespace};
 
-// 插件后台路由
-Route::prefix('plugin/{$plugin}/admin')
+/*
+|--------------------------------------------------------------------------
+| 插件后台路由（Admin 端）
+|--------------------------------------------------------------------------
+| 前缀: /plugin/{$pluginKebab}/admin
+| 中间件: api, auth:admin
+|
+*/
+
+Route::prefix('plugin/{$pluginKebab}/admin')
     ->middleware(['api', 'auth:admin'])
     ->group(function () {
-        Route::get('{$parent}/{$kebabName}', [{$name}Controller::class, 'index']);
-        Route::post('{$parent}/{$kebabName}', [{$name}Controller::class, 'store']);
-        Route::get('{$parent}/{$kebabName}/{id}', [{$name}Controller::class, 'show']);
-        Route::put('{$parent}/{$kebabName}/{id}', [{$name}Controller::class, 'update']);
-        Route::delete('{$parent}/{$kebabName}/{id}', [{$name}Controller::class, 'destroy']);
-        // 元数据和表单 Schema
-        Route::get('{$parent}/{$kebabName}/grid-meta', [{$name}Controller::class, 'gridMeta']);
-        Route::get('{$parent}/{$kebabName}/form-schema', [{$name}Controller::class, 'formSchema']);
-        // 批量操作和状态切换
-        Route::post('{$parent}/{$kebabName}/batch-destroy', [{$name}Controller::class, 'batchDestroy']);
-        Route::post('{$parent}/{$kebabName}/{id}/toggle', [{$name}Controller::class, 'toggle']);
+        Route::apiResource('{$kebabName}', {$name}Controller::class);
     });
 PHP;
     }
 
     /**
      * 生成业务端 Vue 页面（插件后台管理）
-     * 使用 DynamicTable 组件自动读取后端元数据渲染表格、筛选器、操作等
+     * 参考 DemoPlugin 的标准格式
      */
     protected function generateBusinessVueCode(string $plugin, string $kebabName, string $name): string
     {
+        $pluginKebab = Str::kebab($plugin);
         return <<<VUE
+<!--
+ * @Author: Author dabashan.cc
+ * @Date: {$this->formatDate()}
+ * @LastEditTime: {$this->formatDate()}
+ * @LastEditors: LastEditors
+ * @Copyright: Copyright (c) 2026 by Dabashan.cc, All Rights Reserved.
+-->
 <template>
   <div class="container">
-    <DynamicCrud
-      api-prefix="/plugin/{$plugin}/admin/{$kebabName}"
-      :breadcrumb="['menu.plugin', '{$name}管理']"
-      add-title="新增{$name}"
-      edit-title="编辑{$name}"
-    />
+    <a-card class="general-card" title="{$name}管理">
+      <template #extra>
+        <a-button type="primary" @click="handleAdd">
+          <template #icon><icon-plus /></template>
+          新增
+        </a-button>
+      </template>
+      <a-table
+        :columns="columns"
+        :data="tableData"
+        :loading="loading"
+        :pagination="pagination"
+        @page-change="onPageChange"
+      >
+        <template #actions="{ record }">
+          <a-space>
+            <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
+            <a-popconfirm content="确定要删除吗？" @ok="handleDelete(record.id)">
+              <a-button type="text" status="danger" size="small">删除</a-button>
+            </a-popconfirm>
+          </a-space>
+        </template>
+      </a-table>
+    </a-card>
+
+    <a-modal
+      v-model:visible="modalVisible"
+      :title="isEdit ? '编辑{$name}' : '新增{$name}'"
+      @ok="handleSubmit"
+      @cancel="handleCancel"
+    >
+      <a-form ref="formRef" :model="formData" layout="vertical">
+        <a-form-item field="name" label="名称" :rules="[{ required: true, message: '请输入名称' }]">
+          <a-input v-model="formData.name" placeholder="请输入名称" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
   </div>
 </template>
 
 <script lang="ts" setup>
-  import DynamicCrud from '@/components/dynamic/DynamicCrud.vue';
+  import { ref, reactive, onMounted } from 'vue';
+  import { Message } from '@arco-design/web-vue';
+  import { IconPlus } from '@arco-design/web-vue/es/icon';
+  import axios from 'axios';
+
+  interface {$name}Item {
+    id: number;
+    name: string;
+    created_at: string;
+  }
+
+  const API_BASE = '/plugin/{$pluginKebab}/admin/{$kebabName}';
+
+  const loading = ref(false);
+  const tableData = ref<{$name}Item[]>([]);
+  const modalVisible = ref(false);
+  const isEdit = ref(false);
+  const editId = ref<number | null>(null);
+  const formRef = ref();
+
+  const pagination = reactive({
+    current: 1,
+    pageSize: 15,
+    total: 0,
+  });
+
+  const formData = reactive({
+    name: '',
+  });
+
+  const columns = [
+    { title: 'ID', dataIndex: 'id', width: 80 },
+    { title: '名称', dataIndex: 'name' },
+    { title: '创建时间', dataIndex: 'created_at', width: 180 },
+    { title: '操作', slotName: 'actions', width: 150, fixed: 'right' },
+  ];
+
+  const fetchData = async () => {
+    loading.value = true;
+    try {
+      const res = await axios.get(API_BASE, {
+        params: {
+          page: pagination.current,
+          per_page: pagination.pageSize,
+        },
+      });
+      const data = res.data;
+      const result = data?.data || data;
+      tableData.value = result.data || result || [];
+      pagination.total = result.total || tableData.value.length;
+    } catch (err) {
+      Message.error('获取数据失败');
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const onPageChange = (page: number) => {
+    pagination.current = page;
+    fetchData();
+  };
+
+  const resetForm = () => {
+    formData.name = '';
+    editId.value = null;
+    isEdit.value = false;
+  };
+
+  const handleAdd = () => {
+    resetForm();
+    modalVisible.value = true;
+  };
+
+  const handleEdit = (record: {$name}Item) => {
+    isEdit.value = true;
+    editId.value = record.id;
+    formData.name = record.name;
+    modalVisible.value = true;
+  };
+
+  const handleSubmit = async () => {
+    try {
+      const valid = await formRef.value?.validate();
+      if (valid) return;
+
+      if (isEdit.value && editId.value) {
+        await axios.put(\`\${API_BASE}/\${editId.value}\`, formData);
+        Message.success('更新成功');
+      } else {
+        await axios.post(API_BASE, formData);
+        Message.success('创建成功');
+      }
+      modalVisible.value = false;
+      fetchData();
+    } catch (err) {
+      Message.error(isEdit.value ? '更新失败' : '创建失败');
+    }
+  };
+
+  const handleCancel = () => {
+    modalVisible.value = false;
+    resetForm();
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await axios.delete(\`\${API_BASE}/\${id}\`);
+      Message.success('删除成功');
+      fetchData();
+    } catch (err) {
+      Message.error('删除失败');
+    }
+  };
+
+  onMounted(() => {
+    fetchData();
+  });
 </script>
 
 <style scoped lang="less">
   .container {
     padding: 0 20px 20px 20px;
   }
+</style>
+VUE;
+    }
+
+    /**
+     * 生成插件主页 Vue 页面
+     */
+    protected function generatePluginIndexVue(string $pluginKebab, string $pluginTitle): string
+    {
+        return <<<VUE
+<template>
+  <div class="plugin-home">
+    <a-card class="welcome-card">
+      <div class="welcome-content">
+        <icon-apps class="welcome-icon" />
+        <h2 class="welcome-title">{{ pluginTitle }}</h2>
+        <p class="welcome-desc">欢迎使用本插件，请从左侧菜单选择功能模块</p>
+      </div>
+    </a-card>
+  </div>
+</template>
+
+<script lang="ts" setup>
+import { ref } from 'vue';
+
+const pluginTitle = ref('{$pluginTitle}');
+</script>
+
+<style scoped lang="less">
+.plugin-home {
+  padding: 20px;
+  min-height: calc(100vh - 100px);
+}
+
+.welcome-card {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.welcome-icon {
+  font-size: 64px;
+  color: var(--color-primary-6);
+  margin-bottom: 24px;
+}
+
+.welcome-title {
+  font-size: 24px;
+  font-weight: 500;
+  color: var(--color-text-1);
+  margin: 0 0 12px 0;
+}
+
+.welcome-desc {
+  font-size: 14px;
+  color: var(--color-text-3);
+  margin: 0;
+}
 </style>
 VUE;
     }
@@ -1269,28 +1492,9 @@ TS;
         $isPlugin = $config['type'] === 'plugin';
         $pluginKebab = $isPlugin ? Str::kebab($config['plugin'] ?? '') : null;
 
-        // 判断是否是已有插件
-        $isNewPlugin = false;
-        if ($isPlugin && $config['plugin']) {
-            $existingPlugins = $this->getExistingPluginNames();
-            $isNewPlugin = !in_array($pluginKebab, $existingPlugins, true);
-        }
-
-        // 提取路由内容（插件模式下是 child route 片段）
-        $routerCode = $preview['preview']['router']['content'] ?? '';
-
         foreach ($preview['preview'] as $key => $fileInfo) {
-            // 插件模式下，路由文件特殊处理：追加到 plugin.ts
-            if ($key === 'router' && $isPlugin && $pluginKebab) {
-                $routerPath = $this->appendPluginRouteToPluginTs(
-                    $pluginKebab,
-                    $routerCode,
-                    $isNewPlugin,
-                    $config['name']
-                );
-                // 返回相对路径（相对于 laravel12/）
-                $relativePath = str_replace($basePath . '/', '', $routerPath);
-                $writtenFiles[] = $relativePath;
+            // 插件模式跳过 router 键（使用动态路由加载）
+            if ($key === 'router' && $isPlugin) {
                 continue;
             }
 
@@ -1365,56 +1569,20 @@ TS;
         }
 
         // 4. 删除 Vue 视图文件
-        $vuePath = $basePath . '/web/src/views/plugin/' . $pluginKebab . '/' . $kebabName . '/index.vue';
+        $vuePath = $basePath . '/web/src/views/plugin/' . $pluginKebab . '/' . $kebabName . '.vue';
         if (file_exists($vuePath)) {
             unlink($vuePath);
-            $deletedFiles[] = 'web/src/views/plugin/' . $pluginKebab . '/' . $kebabName . '/index.vue';
-            // 清理空目录
-            $vueDir = dirname($vuePath);
-            if (is_dir($vueDir) && count(scandir($vueDir)) === 2) {
-                rmdir($vueDir);
-            }
+            $deletedFiles[] = 'web/src/views/plugin/' . $pluginKebab . '/' . $kebabName . '.vue';
         }
 
-        // 5. 从 plugin-{pluginKebab}.ts 中移除对应的 child route
-        $routerPath = $basePath . '/web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts';
-        if (file_exists($routerPath)) {
-            $content = file_get_contents($routerPath);
-            if ($content !== false) {
-                // 匹配并移除该资源的 child route
-                $escapedName = preg_quote($kebabName, '/');
-                $pattern = '/\s*\{\s*path:\s*\'' . $escapedName . '\',.*?\},\n/s';
-                $newContent = preg_replace($pattern, '', $content);
-                if ($newContent !== $content) {
-                    // 检查该插件是否还有其他资源
-                    $hasOtherResources = preg_match("/path:\s*'{$escapedName}'/", $newContent);
-                    if (!$hasOtherResources && $pluginKebab !== $kebabName) {
-                        // 如果只剩下 index 页面，检查是否还有 index
-                        $hasIndex = strpos($newContent, "path: 'index'") !== false;
-                        if (!$hasIndex) {
-                            // 该插件已无资源，删除整个路由文件
-                            unlink($routerPath);
-                            $deletedFiles[] = 'web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts';
-                        } else {
-                            file_put_contents($routerPath, $newContent);
-                            $deletedFiles[] = 'web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts';
-                        }
-                    } else {
-                        file_put_contents($routerPath, $newContent);
-                        $deletedFiles[] = 'web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts';
-                    }
-                }
-            }
-        }
-
-        // 6. 从 Admin/routes.php 中移除该资源的路由
+        // 5. 从 Admin/routes.php 中移除该资源的路由
         $adminRoutesPath = $basePath . '/plugins/' . $pluginKebab . '/Admin/routes.php';
         if (file_exists($adminRoutesPath)) {
             $content = file_get_contents($adminRoutesPath);
             if ($content !== false) {
                 // 移除包含该资源的路由行
-                $escapedName = preg_quote($kebabName, '/');
-                $pattern = '/.*[\'"].*[/]' . $escapedName . '[\'"].*[\n\r]*/';
+                $escapedName = preg_quote($kebabName, '#');
+                $pattern = '#.*[\'"].*[/]' . $escapedName . '[\'"].*[\n\r]*#';
                 $newContent = preg_replace($pattern, '', $content);
                 // 检查是否还有有效路由（除了 PHP 标签和 Route::prefix）
                 $hasRoutes = preg_match("/Route::(get|post|put|delete|patch)/", $newContent);
@@ -1429,7 +1597,7 @@ TS;
             }
         }
 
-        // 7. 从 plugin.json 中移除对应的菜单和权限
+        // 6. 从 plugin.json 中移除对应的菜单和权限
         $pluginJsonPath = $basePath . '/plugins/' . $pluginKebab . '/plugin.json';
         if (file_exists($pluginJsonPath)) {
             $jsonContent = file_get_contents($pluginJsonPath);
@@ -1439,19 +1607,28 @@ TS;
                     // 移除对应的菜单
                     if (!empty($json['menus'])) {
                         $json['menus'] = array_values(array_filter($json['menus'], function ($menu) use ($kebabName) {
-                            return empty($menu['uri']) || !str_ends_with($menu['uri'], '/' . $kebabName);
+                            if (is_array($menu)) {
+                                return empty($menu['uri']) || !str_ends_with($menu['uri'], '/' . $kebabName);
+                            }
+                            return true;
                         }));
                     }
                     // 移除对应的权限
                     if (!empty($json['permissions'])) {
                         $json['permissions'] = array_values(array_filter($json['permissions'], function ($perm) use ($kebabName) {
+                            if (is_array($perm)) {
+                                return empty($perm['slug']) || !str_ends_with($perm['slug'], '.' . $kebabName);
+                            }
                             return !str_ends_with($perm, '.' . $kebabName);
                         }));
                     }
                     // 移除对应的 admin_controllers
                     if (!empty($json['admin_controllers'])) {
                         $json['admin_controllers'] = array_values(array_filter($json['admin_controllers'], function ($ctrl) use ($name) {
-                            return !str_ends_with($ctrl, $name . 'Controller');
+                            if (is_string($ctrl)) {
+                                return !str_ends_with($ctrl, $name . 'Controller');
+                            }
+                            return true;
                         }));
                     }
                     file_put_contents($pluginJsonPath, json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));

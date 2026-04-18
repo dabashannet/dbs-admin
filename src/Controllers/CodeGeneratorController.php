@@ -363,11 +363,11 @@ class CodeGeneratorController extends AdminController
                 $pluginIndexVue = $this->generatePluginIndexVue($pluginKebab, $pluginTitle ?: $pluginStudly);
 
                 $pluginFiles['plugin_json'] = [
-                    'path' => "plugins/{$pluginKebab}/plugin.json",
+                    'path' => "plugins/{$pluginStudly}/plugin.json",
                     'content' => $pluginJson,
                 ];
                 $pluginFiles['service_provider'] = [
-                    'path' => "plugins/{$pluginKebab}/PluginServiceProvider.php",
+                    'path' => "plugins/{$pluginStudly}/PluginServiceProvider.php",
                     'content' => $serviceProvider,
                 ];
                 $pluginFiles['plugin_index_vue'] = [
@@ -375,8 +375,8 @@ class CodeGeneratorController extends AdminController
                     'content' => $pluginIndexVue,
                 ];
 
-                $files[] = "plugins/{$pluginKebab}/plugin.json";
-                $files[] = "plugins/{$pluginKebab}/PluginServiceProvider.php";
+                $files[] = "plugins/{$pluginStudly}/plugin.json";
+                $files[] = "plugins/{$pluginStudly}/PluginServiceProvider.php";
                 $files[] = "web/src/views/plugin/{$pluginKebab}/index.vue";
             }
 
@@ -385,7 +385,7 @@ class CodeGeneratorController extends AdminController
             $businessVue = $this->generateBusinessVueCode($pluginKebab, $kebabName, $name);
 
             $pluginFiles['admin_routes'] = [
-                'path' => "plugins/{$pluginKebab}/Admin/routes.php",
+                'path' => "plugins/{$pluginStudly}/Admin/routes.php",
                 'content' => $adminRoutes,
             ];
             $pluginFiles['business_vue'] = [
@@ -393,14 +393,15 @@ class CodeGeneratorController extends AdminController
                 'content' => $businessVue,
             ];
 
-            $files[] = "plugins/{$pluginKebab}/Admin/routes.php";
+            $files[] = "plugins/{$pluginStudly}/Admin/routes.php";
             $files[] = "web/src/views/plugin/{$pluginKebab}/{$kebabName}.vue";
         }
 
         // 迁移路径：插件放 plugin 自己的 database/migrations，核心放全局 database/migrations
         $timestamp = date('Y_m_d_His');
+        $pluginStudly = $plugin ? Str::studly($plugin) : null;
         $migrationPath = $config['type'] === 'plugin'
-            ? "plugins/{$pluginKebab}/database/migrations/{$timestamp}_create_{$tableName}_table.php"
+            ? "plugins/{$pluginStudly}/database/migrations/{$timestamp}_create_{$tableName}_table.php"
             : "database/migrations/{$timestamp}_create_{$tableName}_table.php";
 
         return [
@@ -515,6 +516,11 @@ PHP;
             $displayType = $col['display_type'] ?? '';
             if ($displayType && $displayType !== 'text') {
                 $displayOptions = $col['display_options'] ?? [];
+                // 如果 display_options 是 JSON 字符串，解析为数组
+                if (is_string($displayOptions) && !empty($displayOptions)) {
+                    $decoded = json_decode($displayOptions, true);
+                    $displayOptions = is_array($decoded) ? $decoded : [];
+                }
                 $line .= $this->formatDisplayType($displayType, $displayOptions);
             }
             // 默认值
@@ -666,12 +672,14 @@ PHP;
             'textarea' => 'textarea',
             'number' => 'number',
             'email' => 'email',
+            'url' => 'url',
             'select' => 'select',
             'switch' => 'switch',
             'radio' => 'radio',
             'checkbox' => 'checkbox',
             'date' => 'date',
             'dateTime' => 'dateTime',
+            'dateRange' => 'dateRange',
             'time' => 'time',
             'image' => 'image',
             'images' => 'images',
@@ -698,21 +706,49 @@ PHP;
         foreach ($fields as $field) {
             $fieldType = $field['type'] ?? 'text';
             $formType = $typeMap[$fieldType] ?? 'text';
-            $label = $field['label'] ?? $field['key'] ?? '';
+            $key = $field['key'] ?? '';
+            $label = $field['label'] ?? $key;
 
-            $line = "->{$formType}('{$field['key']}', '{$label}')";
+            $line = "->{$formType}('{$key}', '{$label}')";
+
+            // 可空
+            if (!empty($field['nullable'])) {
+                $line .= '->nullable()';
+            }
+
+            // 必填
             if (!empty($field['required'])) {
                 $line .= '->required()';
             }
-            if (!empty($field['default']) && $field['default'] !== '') {
-                $line .= "->default({$field['default']})";
+
+            // 默认值
+            if (isset($field['default']) && $field['default'] !== '') {
+                // 判断是否为数字
+                if (is_numeric($field['default'])) {
+                    $line .= "->default({$field['default']})";
+                } else {
+                    $line .= "->default('{$field['default']}')";
+                }
             }
-            if (!empty($field['help'])) {
-                $line .= "->help('{$field['help']}')";
+
+            // 注释作为帮助文本
+            if (!empty($field['comment'])) {
+                $line .= "->help('{$field['comment']}')";
             }
-            if (!empty($field['placeholder'])) {
-                $line .= "->placeholder('{$field['placeholder']}')";
+
+            // 选项数据（select/radio/checkbox 等）
+            if (!empty($field['options'])) {
+                $options = $field['options'];
+                if (is_string($options)) {
+                    $decoded = json_decode($options, true);
+                    if (is_array($decoded)) {
+                        $line .= "->options(" . var_export($decoded, true) . ')';
+                    }
+                } elseif (is_array($options)) {
+                    $line .= "->options(" . var_export($options, true) . ')';
+                }
             }
+
             $lines[] = $line;
         }
 
@@ -944,7 +980,7 @@ TS;
         $pluginKebab = Str::kebab($plugin);
         $title = $pluginTitle ?: "{$pluginStudly} 插件";
         $json = [
-            'name' => $pluginKebab,
+            'name' => $pluginStudly,
             'title' => $title,
             'description' => "{$name} 管理插件",
             'version' => '1.0.0',
@@ -1195,7 +1231,7 @@ PHP;
       if (valid) return;
 
       if (isEdit.value && editId.value) {
-        await axios.put(\`\${API_BASE}/\${editId.value}\`, formData);
+        await axios.put(`\${API_BASE}/\${editId.value}`, formData);
         Message.success('更新成功');
       } else {
         await axios.post(API_BASE, formData);
@@ -1215,7 +1251,7 @@ PHP;
 
   const handleDelete = async (id: number) => {
     try {
-      await axios.delete(\`\${API_BASE}/\${id}\`);
+      await axios.delete(`\${API_BASE}/\${id}`);
       Message.success('删除成功');
       fetchData();
     } catch (err) {
@@ -1299,8 +1335,9 @@ VUE;
         $files[] = $this->getControllerPath($name, $type, $plugin);
         $files[] = $this->getModelPath($name, $type, $plugin);
         $timestamp = date('Y_m_d_His');
+        $pluginStudly = $plugin ? Str::studly($plugin) : null;
         $migrationPath = $type === 'plugin'
-            ? "plugins/{$pluginKebab}/database/migrations/{$timestamp}_create_{$table}_table.php"
+            ? "plugins/{$pluginStudly}/database/migrations/{$timestamp}_create_{$table}_table.php"
             : "database/migrations/{$timestamp}_create_{$table}_table.php";
         $files[] = $migrationPath;
         $files[] = $this->getVuePath($parent, $kebabName, $type, $plugin);
@@ -1315,7 +1352,7 @@ VUE;
     protected function getControllerPath(string $name, string $type, ?string $plugin): string
     {
         return $type === 'plugin'
-            ? "plugins/" . Str::kebab($plugin) . "/Admin/Controllers/{$name}Controller.php"
+            ? "plugins/" . Str::studly($plugin) . "/Admin/Controllers/{$name}Controller.php"
             : "app/Admin/Controllers/{$name}Controller.php";
     }
 
@@ -1323,7 +1360,7 @@ VUE;
     {
         $modelName = $type === 'plugin' ? $name : "Admin{$name}";
         return $type === 'plugin'
-            ? "plugins/" . Str::kebab($plugin) . "/Models/{$modelName}.php"
+            ? "plugins/" . Str::studly($plugin) . "/Models/{$modelName}.php"
             : "app/Admin/Models/{$modelName}.php";
     }
 
@@ -1344,7 +1381,7 @@ VUE;
     /**
      * 将插件路由追加到 plugin-{pluginKebab}.ts 文件
      */
-    protected function appendPluginRouteToPluginTs(string $pluginKebab, string $childRouteCode, bool $isNewPlugin, string $name): string
+    protected function appendPluginRouteToPluginTs(string $pluginKebab, string $childRouteCode, bool $isNewPlugin): string
     {
         $pluginTsPath = base_path('web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts');
         $pluginStudly = Str::studly($pluginKebab);
@@ -1490,7 +1527,6 @@ TS;
         $basePath = base_path();
         $writtenFiles = [];
         $isPlugin = $config['type'] === 'plugin';
-        $pluginKebab = $isPlugin ? Str::kebab($config['plugin'] ?? '') : null;
 
         foreach ($preview['preview'] as $key => $fileInfo) {
             // 插件模式跳过 router 键（使用动态路由加载）
@@ -1523,6 +1559,12 @@ TS;
             $writtenFiles[] = $path;
         }
 
+        // 插件模式：执行 composer dump-autoload 确保新类能被自动加载
+        if ($isPlugin) {
+            $composer = base_path('vendor/bin/composer') ?: 'composer';
+            exec("{$composer} dump-autoload -q 2>&1");
+        }
+
         return [
             'files' => $writtenFiles,
             'message' => '代码生成成功',
@@ -1535,76 +1577,96 @@ TS;
     protected function doDelete(array $config): array
     {
         $plugin = $config['plugin'];
-        $pluginKebab = Str::kebab($plugin);
+        $pluginStudly = Str::studly($plugin);
         $name = Str::studly($config['name']);
         $kebabName = Str::kebab($config['name']);
         $basePath = base_path();
         $deletedFiles = [];
 
-        // 1. 删除 Controller 文件
-        $controllerPath = $basePath . '/plugins/' . $pluginKebab . '/Admin/Controllers/' . $name . 'Controller.php';
-        if (file_exists($controllerPath)) {
-            unlink($controllerPath);
-            $deletedFiles[] = 'plugins/' . $pluginKebab . '/Admin/Controllers/' . $name . 'Controller.php';
-        }
-
-        // 2. 删除 Model 文件
-        $modelPath = $basePath . '/plugins/' . $pluginKebab . '/Models/' . $name . '.php';
-        if (file_exists($modelPath)) {
-            unlink($modelPath);
-            $deletedFiles[] = 'plugins/' . $pluginKebab . '/Models/' . $name . '.php';
-        }
-
-        // 3. 删除 Migration 文件（按名称匹配）
-        $migrationDir = $basePath . '/plugins/' . $pluginKebab . '/database/migrations';
-        if (is_dir($migrationDir)) {
-            foreach (scandir($migrationDir) as $file) {
-                if ($file === '.' || $file === '..') continue;
-                // 匹配包含 _create_插件名_资源名_ 的迁移文件
-                if (stripos($file, 'create') !== false && stripos($file, $kebabName) !== false) {
-                    unlink($migrationDir . '/' . $file);
-                    $deletedFiles[] = 'plugins/' . $pluginKebab . '/database/migrations/' . $file;
-                }
+        // 安全检查：如果插件已安装，阻止删除
+        if (class_exists('\App\Admin\Models\Plugin')) {
+            $existing = \App\Admin\Models\Plugin::where('name', $pluginStudly)->first();
+            if ($existing) {
+                throw new \Exception('该插件已安装（名称：' . $existing->title . '），请先在插件管理中卸载后再删除代码');
             }
         }
 
-        // 4. 删除 Vue 视图文件
-        $vuePath = $basePath . '/web/src/views/plugin/' . $pluginKebab . '/' . $kebabName . '.vue';
-        if (file_exists($vuePath)) {
-            unlink($vuePath);
+        $pluginKebab = Str::kebab($plugin);
+        $pluginDir = $basePath . '/plugins/' . $pluginStudly;
+
+        // 1. 删除 Controller 文件
+        $controllerPath = $pluginDir . '/Admin/Controllers/' . $name . 'Controller.php';
+        if (file_exists($controllerPath)) {
+            unlink($controllerPath);
+            $deletedFiles[] = 'plugins/' . $pluginStudly . '/Admin/Controllers/' . $name . 'Controller.php';
+        }
+
+        // 2. 删除 Model 文件
+        $modelPath = $pluginDir . '/Models/' . $name . '.php';
+        if (file_exists($modelPath)) {
+            unlink($modelPath);
+            $deletedFiles[] = 'plugins/' . $pluginStudly . '/Models/' . $name . '.php';
+        }
+
+        // 3. 删除 Migration 文件（按名称匹配）
+        $migrationDir = $pluginDir . '/database/migrations';
+        if (is_dir($migrationDir)) {
+            foreach (scandir($migrationDir) as $file) {
+                if ($file === '.' || $file === '..') continue;
+                if (stripos($file, 'create') !== false && stripos($file, $kebabName) !== false) {
+                    unlink($migrationDir . '/' . $file);
+                    $deletedFiles[] = 'plugins/' . $pluginStudly . '/database/migrations/' . $file;
+                }
+            }
+            // 迁移目录为空时删除
+            $remainingFiles = array_diff(scandir($migrationDir), ['.', '..']);
+            if (empty($remainingFiles)) {
+                rmdir($migrationDir);
+            }
+        }
+
+        // 4. 删除 Vue 视图文件（业务页面 + CRUD 页面）
+        $businessVuePath = $basePath . '/web/src/views/plugin/' . $pluginKebab . '/' . $kebabName . '.vue';
+        if (file_exists($businessVuePath)) {
+            unlink($businessVuePath);
             $deletedFiles[] = 'web/src/views/plugin/' . $pluginKebab . '/' . $kebabName . '.vue';
         }
 
+        $crudVuePath = $basePath . '/web/src/views/plugin/' . $pluginKebab . '/' . $kebabName . '/index.vue';
+        if (file_exists($crudVuePath)) {
+            unlink($crudVuePath);
+            $deletedFiles[] = 'web/src/views/plugin/' . $pluginKebab . '/' . $kebabName . '/index.vue';
+        }
+
+        // 清理空 Vue 视图目录
+        $this->removeEmptyDirectory($basePath . '/web/src/views/plugin/' . $pluginKebab . '/' . $kebabName);
+
         // 5. 从 Admin/routes.php 中移除该资源的路由
-        $adminRoutesPath = $basePath . '/plugins/' . $pluginKebab . '/Admin/routes.php';
+        $adminRoutesPath = $pluginDir . '/Admin/routes.php';
         if (file_exists($adminRoutesPath)) {
             $content = file_get_contents($adminRoutesPath);
             if ($content !== false) {
-                // 移除包含该资源的路由行
                 $escapedName = preg_quote($kebabName, '#');
                 $pattern = '#.*[\'"].*[/]' . $escapedName . '[\'"].*[\n\r]*#';
                 $newContent = preg_replace($pattern, '', $content);
-                // 检查是否还有有效路由（除了 PHP 标签和 Route::prefix）
                 $hasRoutes = preg_match("/Route::(get|post|put|delete|patch)/", $newContent);
                 if (!$hasRoutes) {
-                    // 只剩空内容，删除文件
                     unlink($adminRoutesPath);
-                    $deletedFiles[] = 'plugins/' . $pluginKebab . '/Admin/routes.php';
+                    $deletedFiles[] = 'plugins/' . $pluginStudly . '/Admin/routes.php';
                 } else {
                     file_put_contents($adminRoutesPath, $newContent);
-                    $deletedFiles[] = 'plugins/' . $pluginKebab . '/Admin/routes.php';
+                    $deletedFiles[] = 'plugins/' . $pluginStudly . '/Admin/routes.php';
                 }
             }
         }
 
         // 6. 从 plugin.json 中移除对应的菜单和权限
-        $pluginJsonPath = $basePath . '/plugins/' . $pluginKebab . '/plugin.json';
+        $pluginJsonPath = $pluginDir . '/plugin.json';
         if (file_exists($pluginJsonPath)) {
             $jsonContent = file_get_contents($pluginJsonPath);
             if ($jsonContent !== false) {
                 $json = json_decode($jsonContent, true);
                 if ($json) {
-                    // 移除对应的菜单
                     if (!empty($json['menus'])) {
                         $json['menus'] = array_values(array_filter($json['menus'], function ($menu) use ($kebabName) {
                             if (is_array($menu)) {
@@ -1613,7 +1675,6 @@ TS;
                             return true;
                         }));
                     }
-                    // 移除对应的权限
                     if (!empty($json['permissions'])) {
                         $json['permissions'] = array_values(array_filter($json['permissions'], function ($perm) use ($kebabName) {
                             if (is_array($perm)) {
@@ -1622,7 +1683,6 @@ TS;
                             return !str_ends_with($perm, '.' . $kebabName);
                         }));
                     }
-                    // 移除对应的 admin_controllers
                     if (!empty($json['admin_controllers'])) {
                         $json['admin_controllers'] = array_values(array_filter($json['admin_controllers'], function ($ctrl) use ($name) {
                             if (is_string($ctrl)) {
@@ -1632,13 +1692,36 @@ TS;
                         }));
                     }
                     file_put_contents($pluginJsonPath, json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+                    $deletedFiles[] = 'plugins/' . $pluginStudly . '/plugin.json';
                 }
             }
         }
+
+        // 7. 清理空目录
+        $this->removeEmptyDirectory($pluginDir . '/Admin/Controllers');
+        $this->removeEmptyDirectory($pluginDir . '/Admin');
+        $this->removeEmptyDirectory($pluginDir . '/Models');
+        $this->removeEmptyDirectory($pluginDir . '/database');
+
+        // 8. 执行 composer dump-autoload 清理自动加载
+        $composer = base_path('vendor/bin/composer') ?: 'composer';
+        exec("{$composer} dump-autoload -q 2>&1");
 
         return [
             'files' => $deletedFiles,
             'message' => '代码已删除',
         ];
+    }
+
+    /**
+     * 删除空目录
+     */
+    protected function removeEmptyDirectory(string $dir): void
+    {
+        if (!is_dir($dir)) return;
+        $files = array_diff(scandir($dir), ['.', '..']);
+        if (empty($files)) {
+            rmdir($dir);
+        }
     }
 }

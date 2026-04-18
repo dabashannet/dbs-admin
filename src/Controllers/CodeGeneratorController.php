@@ -72,6 +72,26 @@ class CodeGeneratorController extends AdminController
         $pluginPath = base_path('plugins');
         $plugins = [];
 
+        // 1. 从数据库读取已安装的插件
+        if (class_exists('\App\Admin\Models\Plugin')) {
+            try {
+                $dbPlugins = \App\Admin\Models\Plugin::all();
+                foreach ($dbPlugins as $record) {
+                    $plugins[$record->name] = [
+                        'name' => $record->name,
+                        'title' => $record->title ?? $record->name,
+                        'description' => $record->description ?? '',
+                        'version' => $record->version ?? '1.0.0',
+                        'enabled' => (bool) $record->enabled,
+                        'installed' => true,
+                    ];
+                }
+            } catch (\Exception) {
+                // 数据库不存在或表不存在，忽略
+            }
+        }
+
+        // 2. 扫描 plugins 目录，补充未安装的插件
         if (is_dir($pluginPath)) {
             foreach (scandir($pluginPath) as $dir) {
                 if ($dir === '.' || $dir === '..') {
@@ -81,19 +101,24 @@ class CodeGeneratorController extends AdminController
                 if (file_exists($jsonPath)) {
                     $config = json_decode(file_get_contents($jsonPath), true);
                     if ($config && !empty($config['name'])) {
-                        $plugins[] = [
-                            'name' => $config['name'],
-                            'title' => $config['title'] ?? $config['name'],
-                            'description' => $config['description'] ?? '',
-                            'version' => $config['version'] ?? '1.0.0',
-                            'enabled' => $config['enabled'] ?? true,
-                        ];
+                        $name = $config['name'];
+                        // 如果数据库中已有，不重复添加
+                        if (!isset($plugins[$name])) {
+                            $plugins[$name] = [
+                                'name' => $name,
+                                'title' => $config['title'] ?? $name,
+                                'description' => $config['description'] ?? '',
+                                'version' => $config['version'] ?? '1.0.0',
+                                'enabled' => $config['enabled'] ?? true,
+                                'installed' => false,
+                            ];
+                        }
                     }
                 }
             }
         }
 
-        return $this->success($plugins);
+        return $this->success(array_values($plugins));
     }
 
     /**
@@ -101,9 +126,22 @@ class CodeGeneratorController extends AdminController
      */
     protected function getExistingPluginNames(): array
     {
-        $pluginPath = base_path('plugins');
         $names = [];
 
+        // 1. 从数据库获取已安装的插件
+        if (class_exists('\App\Admin\Models\Plugin')) {
+            try {
+                $dbPlugins = \App\Admin\Models\Plugin::all();
+                foreach ($dbPlugins as $record) {
+                    $names[] = Str::kebab($record->name);
+                }
+            } catch (\Exception $e) {
+                // 忽略
+            }
+        }
+
+        // 2. 扫描 plugins 目录，补充未安装的插件
+        $pluginPath = base_path('plugins');
         if (is_dir($pluginPath)) {
             foreach (scandir($pluginPath) as $dir) {
                 if ($dir === '.' || $dir === '..') {
@@ -113,7 +151,10 @@ class CodeGeneratorController extends AdminController
                 if (file_exists($jsonPath)) {
                     $config = json_decode(file_get_contents($jsonPath), true);
                     if ($config && !empty($config['name'])) {
-                        $names[] = Str::kebab($config['name']);
+                        $kebabName = Str::kebab($config['name']);
+                        if (!in_array($kebabName, $names, true)) {
+                            $names[] = $kebabName;
+                        }
                     }
                 }
             }
@@ -139,6 +180,7 @@ class CodeGeneratorController extends AdminController
             'name' => 'required|string',
             'type' => 'required|in:core,plugin',
             'plugin' => 'nullable|string',
+            'plugin_title' => 'nullable|string',
             'parent' => 'nullable|string',
             'table' => 'nullable|string',
             'fillable' => 'nullable|array',
@@ -164,6 +206,7 @@ class CodeGeneratorController extends AdminController
             'name' => 'required|string',
             'type' => 'required|in:core,plugin',
             'plugin' => 'nullable|string',
+            'plugin_title' => 'nullable|string',
             'parent' => 'nullable|string',
             'table' => 'nullable|string',
             'fillable' => 'nullable|array',
@@ -358,9 +401,9 @@ class CodeGeneratorController extends AdminController
             if ($isNewPlugin) {
                 $pluginTitle = $config['plugin_title'] ?? '';
                 $pluginStudly = Str::studly($plugin);
-                $pluginJson = $this->generatePluginJson($plugin, $pluginTitle, $name, $tableName, $parent, $kebabName, $icon, $order);
+                $pluginJson = $this->generatePluginJson($plugin, $pluginTitle, $name, $kebabName, $icon);
                 $serviceProvider = $this->generatePluginServiceProvider($plugin, $name);
-                $pluginIndexVue = $this->generatePluginIndexVue($pluginKebab, $pluginTitle ?: $pluginStudly);
+                $pluginIndexVue = $this->generatePluginIndexVue($pluginTitle ?: $pluginStudly);
 
                 $pluginFiles['plugin_json'] = [
                     'path' => "plugins/{$pluginStudly}/plugin.json",
@@ -381,7 +424,7 @@ class CodeGeneratorController extends AdminController
             }
 
             // 无论新旧都生成 Admin 路由文件和业务端页面
-            $adminRoutes = $this->generatePluginAdminRoutes($plugin, $name, $parent, $kebabName);
+            $adminRoutes = $this->generatePluginAdminRoutes($plugin, $name, $kebabName);
             $businessVue = $this->generateBusinessVueCode($pluginKebab, $kebabName, $name);
 
             $pluginFiles['admin_routes'] = [
@@ -974,7 +1017,7 @@ TS;
     /**
      * 生成插件 manifest（plugin.json）
      */
-    protected function generatePluginJson(string $plugin, string $pluginTitle, string $name, string $tableName, string $parent, string $kebabName, string $icon, int $order): string
+    protected function generatePluginJson(string $plugin, string $pluginTitle, string $name, string $kebabName, string $icon): string
     {
         $pluginStudly = Str::studly($plugin);
         $pluginKebab = Str::kebab($plugin);
@@ -1058,7 +1101,7 @@ PHP;
     /**
      * 生成插件后台路由文件
      */
-    protected function generatePluginAdminRoutes(string $plugin, string $name, string $parent, string $kebabName): string
+    protected function generatePluginAdminRoutes(string $plugin, string $name, string $kebabName): string
     {
         $pluginStudly = Str::studly($plugin);
         $pluginKebab = Str::kebab($plugin);
@@ -1275,7 +1318,7 @@ VUE;
     /**
      * 生成插件主页 Vue 页面
      */
-    protected function generatePluginIndexVue(string $pluginKebab, string $pluginTitle): string
+    protected function generatePluginIndexVue(string $pluginTitle): string
     {
         return <<<VUE
 <template>

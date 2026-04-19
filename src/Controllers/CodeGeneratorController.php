@@ -271,13 +271,6 @@ class CodeGeneratorController extends AdminController
 
         $files = $this->getGeneratedFiles($name, $kebabName, $parent, $type, $plugin, $table, $pluginKebab);
 
-        // 插件模式：追加 Http 路由和控制器文件
-        if ($type === 'plugin' && $plugin) {
-            $pluginStudly = Str::studly($plugin);
-            $files[] = "plugins/{$pluginStudly}/Http/routes.php";
-            $files[] = "plugins/{$pluginStudly}/Http/Controllers/{$name}Controller.php";
-        }
-
         return $this->success(['files' => $files]);
     }
 
@@ -1652,20 +1645,48 @@ VUE;
     protected function getGeneratedFiles(string $name, string $kebabName, string $parent, string $type, ?string $plugin, string $table, ?string $pluginKebab = null): array
     {
         $files = [];
-        $files[] = $this->getControllerPath($name, $type, $plugin);
-        $files[] = $this->getModelPath($name, $type, $plugin);
-        $timestamp = date('Y_m_d_His');
-        $pluginStudly = $plugin ? Str::studly($plugin) : null;
-        $migrationPath = $type === 'plugin'
-            ? "plugins/{$pluginStudly}/database/migrations/{$timestamp}_create_{$table}_table.php"
-            : "database/migrations/{$timestamp}_create_{$table}_table.php";
-        $files[] = $migrationPath;
-        $files[] = $this->getVuePath($parent, $kebabName, $type, $plugin);
-        $files[] = $this->getRouterPath($parent, $kebabName, $type, $pluginKebab);
-        if ($type === 'core') {
+
+        if ($type === 'plugin' && $plugin) {
+            $pluginStudly = Str::studly($plugin);
+
+            // 插件模式：Admin 控制器和 Model
+            $files[] = "plugins/{$pluginStudly}/Admin/Controllers/{$name}Controller.php";
+            $files[] = "plugins/{$pluginStudly}/Models/{$name}.php";
+
+            // 迁移文件
+            $timestamp = date('Y_m_d_His');
+            $files[] = "plugins/{$pluginStudly}/database/migrations/{$timestamp}_create_{$table}_table.php";
+
+            // Admin 路由
+            $files[] = "plugins/{$pluginStudly}/Admin/routes.php";
+
+            // Vue 页面（主页面 + 业务页面）
+            $files[] = "web/src/views/plugin/{$pluginKebab}/index.vue";
+            $files[] = "web/src/views/plugin/{$pluginKebab}/{$kebabName}.vue";
+
+            // Http 路由和控制器
+            $files[] = "plugins/{$pluginStudly}/Http/routes.php";
+            $files[] = "plugins/{$pluginStudly}/Http/Controllers/{$name}Controller.php";
+
+            // 插件路由文件
+            $files[] = "web/src/router/routes/modules/plugin-{$pluginKebab}.ts";
+
+            // 新插件额外文件（plugin.json 和 ServiceProvider）
+            // 这里无法判断是否为新插件，所以也列出来（实际查看时可能存在）
+            $files[] = "plugins/{$pluginStudly}/plugin.json";
+            $files[] = "plugins/{$pluginStudly}/PluginServiceProvider.php";
+        } else {
+            // 核心模块
+            $files[] = $this->getControllerPath($name, $type, $plugin);
+            $files[] = $this->getModelPath($name, $type, $plugin);
+            $timestamp = date('Y_m_d_His');
+            $files[] = "database/migrations/{$timestamp}_create_{$table}_table.php";
+            $files[] = $this->getVuePath($parent, $kebabName, $type, $plugin);
+            $files[] = $this->getRouterPath($parent, $kebabName, $type, $pluginKebab);
             $files[] = "web/src/views/{$parent}/{$kebabName}/locale/zh-CN.ts";
             $files[] = "web/src/views/{$parent}/{$kebabName}/locale/en-US.ts";
         }
+
         return $files;
     }
 

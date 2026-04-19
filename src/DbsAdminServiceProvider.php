@@ -42,7 +42,7 @@ class DbsAdminServiceProvider extends ServiceProvider
                 Route::post('/code-generator/preview', [CodeGeneratorController::class, 'preview']);
                 Route::post('/code-generator/generate', [CodeGeneratorController::class, 'generate']);
                 Route::post('/code-generator/delete', [CodeGeneratorController::class, 'delete']);
-                Route::post('/code-generator/delete-all', [CodeGeneratorController::class, 'deleteAll']);
+                Route::post('/code-generator/files', [CodeGeneratorController::class, 'files']);
             });
     }
 }

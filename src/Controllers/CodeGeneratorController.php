@@ -228,7 +228,7 @@ class CodeGeneratorController extends AdminController
     }
 
     /**
-     * 删除生成的代码（插件模式 - 删除单个资源）
+     * 删除生成的代码（插件模式）
      */
     public function delete(Request $request): \Illuminate\Http\JsonResponse
     {
@@ -246,20 +246,39 @@ class CodeGeneratorController extends AdminController
     }
 
     /**
-     * 删除插件所有生成代码（删除整个插件目录）
+     * 根据历史记录参数返回生成的文件列表
      */
-    public function deleteAll(Request $request): \Illuminate\Http\JsonResponse
+    public function files(Request $request): \Illuminate\Http\JsonResponse
     {
         $validated = $request->validate([
-            'plugin' => 'required|string',
+            'name' => 'required|string',
+            'type' => 'required|in:core,plugin',
+            'plugin' => 'nullable|string',
+            'parent' => 'nullable|string',
+            'tables' => 'nullable|array',
         ]);
 
-        try {
-            $result = $this->doDeleteAll($validated);
-            return $this->success($result, '插件代码全部删除成功');
-        } catch (\Exception $e) {
-            return $this->fail('代码删除失败: ' . $e->getMessage());
+        $name = Str::studly($validated['name']);
+        $kebabName = Str::kebab($validated['name']);
+        $type = $validated['type'];
+        $plugin = $validated['plugin'] ?? null;
+        $pluginKebab = $plugin ? Str::kebab($plugin) : null;
+        $parent = $validated['parent'] ?? 'system';
+        $tables = $validated['tables'] ?? [];
+        $table = $tables[0] ?? ($type === 'plugin'
+            ? "p_{$pluginKebab}_" . Str::snake(Str::plural($name))
+            : "admin_" . Str::snake(Str::plural($name)));
+
+        $files = $this->getGeneratedFiles($name, $kebabName, $parent, $type, $plugin, $table, $pluginKebab);
+
+        // 插件模式：追加 Http 路由和控制器文件
+        if ($type === 'plugin' && $plugin) {
+            $pluginStudly = Str::studly($plugin);
+            $files[] = "plugins/{$pluginStudly}/Http/routes.php";
+            $files[] = "plugins/{$pluginStudly}/Http/Controllers/{$name}Controller.php";
         }
+
+        return $this->success(['files' => $files]);
     }
 
     // ==================== 内部方法 ====================
@@ -2062,74 +2081,5 @@ TS;
         if (empty($files)) {
             rmdir($dir);
         }
-    }
-
-    /**
-     * 删除插件所有生成代码（整个插件目录 + 前端文件）
-     */
-    protected function doDeleteAll(array $config): array
-    {
-        $plugin = $config['plugin'];
-        $pluginStudly = Str::studly($plugin);
-        $pluginKebab = Str::kebab($plugin);
-        $basePath = base_path();
-        $deletedFiles = [];
-
-        // 安全检查：如果插件已安装，阻止删除
-        if (class_exists('\App\Admin\Models\Plugin')) {
-            $existing = \App\Admin\Models\Plugin::where('name', $pluginStudly)->first();
-            if ($existing) {
-                throw new \Exception('该插件已安装（名称：' . $existing->title . '），请先在插件管理中卸载后再删除代码');
-            }
-        }
-
-        // 1. 删除整个插件目录
-        $pluginDir = $basePath . '/plugins/' . $pluginStudly;
-        if (is_dir($pluginDir)) {
-            $this->deleteDirectoryRecursive($pluginDir);
-            $deletedFiles[] = 'plugins/' . $pluginStudly . '/';
-        }
-
-        // 2. 删除前端视图目录
-        $pluginVueDir = $basePath . '/web/src/views/plugin/' . $pluginKebab;
-        if (is_dir($pluginVueDir)) {
-            $this->deleteDirectoryRecursive($pluginVueDir);
-            $deletedFiles[] = 'web/src/views/plugin/' . $pluginKebab . '/';
-        }
-
-        // 3. 删除前端路由文件
-        $pluginRoutePath = $basePath . '/web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts';
-        if (file_exists($pluginRoutePath)) {
-            unlink($pluginRoutePath);
-            $deletedFiles[] = 'web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts';
-        }
-
-        // 4. 执行 composer dump-autoload
-        $composer = base_path('vendor/bin/composer') ?: 'composer';
-        exec("{$composer} dump-autoload -q 2>&1");
-
-        return [
-            'files' => $deletedFiles,
-            'message' => '插件代码全部删除成功',
-        ];
-    }
-
-    /**
-     * 递归删除整个目录（包括文件）
-     */
-    protected function deleteDirectoryRecursive(string $dir): void
-    {
-        if (!is_dir($dir)) return;
-
-        $files = array_diff(scandir($dir), ['.', '..']);
-        foreach ($files as $file) {
-            $fullPath = $dir . '/' . $file;
-            if (is_dir($fullPath)) {
-                $this->deleteDirectoryRecursive($fullPath);
-            } else {
-                unlink($fullPath);
-            }
-        }
-        rmdir($dir);
     }
 }

@@ -439,7 +439,7 @@ class CodeGeneratorController extends AdminController
                     'content' => $pluginJson,
                 ];
                 $pluginFiles['service_provider'] = [
-                    'path' => "plugins/{$pluginStudly}/PluginServiceProvider.php",
+                    'path' => "plugins/{$pluginStudly}/Providers/PluginServiceProvider.php",
                     'content' => $serviceProvider,
                 ];
                 $pluginFiles['plugin_index_vue'] = [
@@ -448,7 +448,7 @@ class CodeGeneratorController extends AdminController
                 ];
 
                 $files[] = "plugins/{$pluginStudly}/plugin.json";
-                $files[] = "plugins/{$pluginStudly}/PluginServiceProvider.php";
+                $files[] = "plugins/{$pluginStudly}/Providers/PluginServiceProvider.php";
                 $files[] = "plugins/{$pluginStudly}/resources/views/index.vue";
             }
 
@@ -1116,7 +1116,7 @@ TS;
             'show_api' => true,
             'requires' => [],
             'providers' => [
-                "Plugins\\{$pluginStudly}\\PluginServiceProvider",
+                "Plugins\\{$pluginStudly}\\Providers\\PluginServiceProvider",
             ],
             'admin_controllers' => [
                 "Plugins\\{$pluginStudly}\\Admin\\Controllers\\{$name}Controller",
@@ -1147,6 +1147,7 @@ TS;
     protected function generatePluginServiceProvider(string $plugin, string $name): string
     {
         $pluginStudly = Str::studly($plugin);
+        $pluginKebab = Str::kebab($plugin);
         $date = $this->formatDate();
 
         return <<<PHP
@@ -1160,12 +1161,14 @@ TS;
  * @Wiki: 更多问题请查看 wiki.dabashan.cc
  */
 
-namespace Plugins\\{$pluginStudly};
+namespace Plugins\\{$pluginStudly}\\Providers;
 
 use Illuminate\\Support\\ServiceProvider;
 
 class PluginServiceProvider extends ServiceProvider
 {
+    protected string \$pluginName = '{$pluginKebab}';
+
     public function register(): void
     {
         //
@@ -1174,19 +1177,19 @@ class PluginServiceProvider extends ServiceProvider
     public function boot(): void
     {
         // 加载数据库迁移
-        \$migrationsPath = __DIR__ . '/database/migrations';
+        \$migrationsPath = dirname(__DIR__) . '/database/migrations';
         if (is_dir(\$migrationsPath)) {
             \$this->loadMigrationsFrom(\$migrationsPath);
         }
 
         // 加载后台路由
-        \$adminRoutes = __DIR__ . '/Admin/routes.php';
+        \$adminRoutes = dirname(__DIR__) . '/Admin/routes.php';
         if (file_exists(\$adminRoutes)) {
             \$this->loadRoutesFrom(\$adminRoutes);
         }
 
         // 加载业务路由
-        \$httpRoutes = __DIR__ . '/Http/routes.php';
+        \$httpRoutes = dirname(__DIR__) . '/Http/routes.php';
         if (file_exists(\$httpRoutes)) {
             \$this->loadRoutesFrom(\$httpRoutes);
         }

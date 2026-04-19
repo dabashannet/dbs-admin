@@ -228,7 +228,7 @@ class CodeGeneratorController extends AdminController
     }
 
     /**
-     * 删除生成的代码（插件模式）
+     * 删除生成的代码（插件模式 - 删除单个资源）
      */
     public function delete(Request $request): \Illuminate\Http\JsonResponse
     {
@@ -240,6 +240,23 @@ class CodeGeneratorController extends AdminController
         try {
             $result = $this->doDelete($validated);
             return $this->success($result, '代码删除成功');
+        } catch (\Exception $e) {
+            return $this->fail('代码删除失败: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * 删除插件所有生成代码（删除整个插件目录）
+     */
+    public function deleteAll(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $validated = $request->validate([
+            'plugin' => 'required|string',
+        ]);
+
+        try {
+            $result = $this->doDeleteAll($validated);
+            return $this->success($result, '插件代码全部删除成功');
         } catch (\Exception $e) {
             return $this->fail('代码删除失败: ' . $e->getMessage());
         }
@@ -427,6 +444,10 @@ class CodeGeneratorController extends AdminController
             $adminRoutes = $this->generatePluginAdminRoutes($plugin, $name, $kebabName);
             $businessVue = $this->generateBusinessVueCode($pluginKebab, $kebabName, $name);
 
+            // 生成 Http 目录下的业务路由和控制器
+            $httpRoutes = $this->generatePluginHttpRoutes($plugin, $name, $kebabName);
+            $httpController = $this->generatePluginHttpController($plugin, $name);
+
             $pluginFiles['admin_routes'] = [
                 'path' => "plugins/{$pluginStudly}/Admin/routes.php",
                 'content' => $adminRoutes,
@@ -435,9 +456,19 @@ class CodeGeneratorController extends AdminController
                 'path' => "web/src/views/plugin/{$pluginKebab}/{$kebabName}.vue",
                 'content' => $businessVue,
             ];
+            $pluginFiles['http_routes'] = [
+                'path' => "plugins/{$pluginStudly}/Http/routes.php",
+                'content' => $httpRoutes,
+            ];
+            $pluginFiles['http_controller'] = [
+                'path' => "plugins/{$pluginStudly}/Http/Controllers/{$name}Controller.php",
+                'content' => $httpController,
+            ];
 
             $files[] = "plugins/{$pluginStudly}/Admin/routes.php";
             $files[] = "web/src/views/plugin/{$pluginKebab}/{$kebabName}.vue";
+            $files[] = "plugins/{$pluginStudly}/Http/routes.php";
+            $files[] = "plugins/{$pluginStudly}/Http/Controllers/{$name}Controller.php";
         }
 
         // 迁移路径：插件放 plugin 自己的 database/migrations，核心放全局 database/migrations
@@ -476,20 +507,34 @@ class CodeGeneratorController extends AdminController
 
     protected function generateControllerCode(string $name, string $controllerName, string $modelName, string $type, array $fields, array $gridColumns, array $filters = [], ?string $plugin = null): string
     {
+        $pluginStudly = $plugin ? Str::studly($plugin) : null;
         $namespace = $type === 'plugin'
-            ? "Plugins\\{$plugin}\\Admin\\Controllers"
+            ? "Plugins\\{$pluginStudly}\\Admin\\Controllers"
             : 'App\\Admin\\Controllers';
 
         $modelNamespace = $type === 'plugin'
-            ? "Plugins\\{$plugin}\\Models\\{$modelName}"
+            ? "Plugins\\{$pluginStudly}\\Models\\{$modelName}"
             : "App\\Admin\\Models\\{$modelName}";
 
         $gridColumnsCode = $this->formatGridColumns($gridColumns, $fields);
         $formFieldsCode = $this->formFields($fields);
         $filterCode = $this->formatGridFilters($filters, $fields);
 
+        $date = $this->formatDate();
+
         return <<<PHP
 <?php
+
+/**
+ * {$controllerName} 控制器
+ *
+ * @Author: Author dabashan.cc
+ * @Date: {$date}
+ * @LastEditTime: {$date}
+ * @Copyright: Copyright (c) 2026 by Dabashan.cc, All Rights Reserved.
+ * @Source: Dbs-Admin 代码生成器快速生成
+ * @Wiki: 更多问题请查看 wiki.dabashan.cc
+ */
 
 namespace {$namespace};
 
@@ -800,12 +845,25 @@ PHP;
 
     protected function generateModelCode(string $modelName, string $tableName, array $fillable, string $type, ?string $plugin = null): string
     {
-        $namespace = $type === 'plugin' ? "Plugins\\{$plugin}\\Models" : 'App\\Admin\\Models';
+        $pluginStudly = $plugin ? Str::studly($plugin) : null;
+        $namespace = $type === 'plugin' ? "Plugins\\{$pluginStudly}\\Models" : 'App\\Admin\\Models';
         $fillableCode = empty($fillable) ? '//' : "'" . implode("',\n        '", $fillable) . "',";
         $baseModel = $type === 'plugin' ? '\\Illuminate\\Database\\Eloquent\\Model' : '\\Dabashan\\DbsAdmin\\Models\\BaseAdminModel';
+        $date = $this->formatDate();
 
         return <<<PHP
 <?php
+
+/**
+ * {$modelName} 模型
+ *
+ * @Author: Author dabashan.cc
+ * @Date: {$date}
+ * @LastEditTime: {$date}
+ * @Copyright: Copyright (c) 2026 by Dabashan.cc, All Rights Reserved.
+ * @Source: Dbs-Admin 代码生成器快速生成
+ * @Wiki: 更多问题请查看 wiki.dabashan.cc
+ */
 
 namespace {$namespace};
 
@@ -1034,10 +1092,10 @@ TS;
             'show_api' => true,
             'requires' => [],
             'providers' => [
-                "Plugins\\\\{$pluginStudly}\\\\PluginServiceProvider",
+                "Plugins\\{$pluginStudly}\\PluginServiceProvider",
             ],
             'admin_controllers' => [
-                "Plugins\\\\{$pluginStudly}\\\\Admin\\\\Controllers\\\\{$name}Controller",
+                "Plugins\\{$pluginStudly}\\Admin\\Controllers\\{$name}Controller",
             ],
             'menus' => [
                 [
@@ -1065,9 +1123,18 @@ TS;
     protected function generatePluginServiceProvider(string $plugin, string $name): string
     {
         $pluginStudly = Str::studly($plugin);
+        $date = $this->formatDate();
 
         return <<<PHP
 <?php
+
+/**
+ * 插件服务提供者
+ * @Date: {$date}
+ * @LastEditTime: {$date}
+ * @Source: Dbs-Admin 代码生成器快速生成
+ * @Wiki: 更多问题请查看 wiki.dabashan.cc
+ */
 
 namespace Plugins\\{$pluginStudly};
 
@@ -1083,15 +1150,21 @@ class PluginServiceProvider extends ServiceProvider
     public function boot(): void
     {
         // 加载数据库迁移
-        \$migrationsPath = __DIR__ . '/../database/migrations';
+        \$migrationsPath = __DIR__ . '/database/migrations';
         if (is_dir(\$migrationsPath)) {
             \$this->loadMigrationsFrom(\$migrationsPath);
         }
 
         // 加载后台路由
-        \$adminRoutes = __DIR__ . '/../Admin/routes.php';
+        \$adminRoutes = __DIR__ . '/Admin/routes.php';
         if (file_exists(\$adminRoutes)) {
             \$this->loadRoutesFrom(\$adminRoutes);
+        }
+
+        // 加载业务路由
+        \$httpRoutes = __DIR__ . '/Http/routes.php';
+        if (file_exists(\$httpRoutes)) {
+            \$this->loadRoutesFrom(\$httpRoutes);
         }
     }
 }
@@ -1106,9 +1179,18 @@ PHP;
         $pluginStudly = Str::studly($plugin);
         $pluginKebab = Str::kebab($plugin);
         $controllerNamespace = "Plugins\\{$pluginStudly}\\Admin\\Controllers\\{$name}Controller";
+        $date = $this->formatDate();
 
         return <<<PHP
 <?php
+
+/**
+ * 插件后台路由配置
+ * @Date: {$date}
+ * @LastEditTime: {$date}
+ * @Source: Dbs-Admin 代码生成器快速生成
+ * @Wiki: 开发文档 wiki.dabashan.cc
+ */
 
 use Illuminate\\Support\\Facades\\Route;
 use {$controllerNamespace};
@@ -1131,19 +1213,195 @@ PHP;
     }
 
     /**
+     * 生成插件业务端路由文件（Http 目录）
+     */
+    protected function generatePluginHttpRoutes(string $plugin, string $name, string $kebabName): string
+    {
+        $pluginStudly = Str::studly($plugin);
+        $pluginKebab = Str::kebab($plugin);
+        $controllerNamespace = "Plugins\\{$pluginStudly}\\Http\\Controllers\\{$name}Controller";
+        $date = $this->formatDate();
+
+        return <<<PHP
+<?php
+
+/**
+ * 插件业务端路由配置
+ * @Date: {$date}
+ * @LastEditTime: {$date}
+ * @Source: Dbs-Admin 代码生成器快速生成
+ * @Wiki: 开发文档 wiki.dabashan.cc
+ */
+
+use Illuminate\\Support\\Facades\\Route;
+use {$controllerNamespace};
+
+/*
+|--------------------------------------------------------------------------
+| 插件业务路由（Http 端）
+|--------------------------------------------------------------------------
+| 前缀: /plugin/{$pluginKebab}/api
+| 中间件: api
+| 业务端独立，无强制约束
+|
+*/
+
+Route::prefix('plugin/{$pluginKebab}/api')
+    ->middleware('api')
+    ->group(function () {
+        // 公开接口（限速 60 次/分钟）
+        Route::middleware('throttle:60,1')->group(function () {
+            Route::apiResource('{$kebabName}', {$name}Controller::class);
+        });
+    });
+PHP;
+    }
+
+    /**
+     * 生成插件业务端控制器（Http 目录）
+     */
+    protected function generatePluginHttpController(string $plugin, string $name): string
+    {
+        $pluginStudly = Str::studly($plugin);
+        $modelName = $name;
+        $date = $this->formatDate();
+
+        return <<<PHP
+<?php
+
+/**
+ * {$name} 业务端控制器
+ * @Date: {$date}
+ * @LastEditTime: {$date}
+ * @Source: Dbs-Admin 代码生成器快速生成
+ * @Wiki: 开发文档 wiki.dabashan.cc
+ */
+
+namespace Plugins\\{$pluginStudly}\\Http\\Controllers;
+
+use Illuminate\\Http\\Request;
+use Illuminate\\Routing\\Controller;
+use Plugins\\{$pluginStudly}\\Models\\{$modelName};
+
+class {$name}Controller extends Controller
+{
+    /**
+     * 获取列表
+     */
+    public function index(Request \$request)
+    {
+        \$perPage = \$request->input('per_page', 15);
+        \$items = {$modelName}::paginate(\$perPage);
+
+        return response()->json([
+            'code' => 0,
+            'message' => 'success',
+            'data' => \$items,
+        ]);
+    }
+
+    /**
+     * 获取详情
+     */
+    public function show(\$id)
+    {
+        \$item = {$modelName}::find(\$id);
+        if (!\$item) {
+            return response()->json([
+                'code' => 404,
+                'message' => '数据不存在',
+            ], 404);
+        }
+
+        return response()->json([
+            'code' => 0,
+            'message' => 'success',
+            'data' => \$item,
+        ]);
+    }
+
+    /**
+     * 创建
+     */
+    public function store(Request \$request)
+    {
+        \$validated = \$request->validate([
+            'name' => 'required|string|max:255',
+        ]);
+
+        \$item = {$modelName}::create(\$validated);
+
+        return response()->json([
+            'code' => 0,
+            'message' => '创建成功',
+            'data' => \$item,
+        ]);
+    }
+
+    /**
+     * 更新
+     */
+    public function update(Request \$request, \$id)
+    {
+        \$item = {$modelName}::find(\$id);
+        if (!\$item) {
+            return response()->json([
+                'code' => 404,
+                'message' => '数据不存在',
+            ], 404);
+        }
+
+        \$validated = \$request->validate([
+            'name' => 'sometimes|string|max:255',
+        ]);
+
+        \$item->update(\$validated);
+
+        return response()->json([
+            'code' => 0,
+            'message' => '更新成功',
+            'data' => \$item,
+        ]);
+    }
+
+    /**
+     * 删除
+     */
+    public function destroy(\$id)
+    {
+        \$item = {$modelName}::find(\$id);
+        if (!\$item) {
+            return response()->json([
+                'code' => 404,
+                'message' => '数据不存在',
+            ], 404);
+        }
+
+        \$item->delete();
+
+        return response()->json([
+            'code' => 0,
+            'message' => '删除成功',
+        ]);
+    }
+}
+PHP;
+    }
+
+    /**
      * 生成业务端 Vue 页面（插件后台管理）
      * 参考 DemoPlugin 的标准格式
      */
     protected function generateBusinessVueCode(string $plugin, string $kebabName, string $name): string
     {
         $pluginKebab = Str::kebab($plugin);
+        $date = $this->formatDate();
         return <<<VUE
 <!--
- * @Author: Author dabashan.cc
- * @Date: {$this->formatDate()}
- * @LastEditTime: {$this->formatDate()}
- * @LastEditors: LastEditors
- * @Copyright: Copyright (c) 2026 by Dabashan.cc, All Rights Reserved.
+ * @Date: {$date}
+ * @LastEditTime: {$date}
+ * @Source: Dbs-Admin 代码生成器快速生成
+ * @Wiki: 开发文档 wiki.dabashan.cc
 -->
 <template>
   <div class="container">
@@ -1661,14 +1919,9 @@ TS;
                     $deletedFiles[] = 'plugins/' . $pluginStudly . '/database/migrations/' . $file;
                 }
             }
-            // 迁移目录为空时删除
-            $remainingFiles = array_diff(scandir($migrationDir), ['.', '..']);
-            if (empty($remainingFiles)) {
-                rmdir($migrationDir);
-            }
         }
 
-        // 4. 删除 Vue 视图文件（业务页面 + CRUD 页面）
+        // 4. 删除 Vue 视图文件
         $businessVuePath = $basePath . '/web/src/views/plugin/' . $pluginKebab . '/' . $kebabName . '.vue';
         if (file_exists($businessVuePath)) {
             unlink($businessVuePath);
@@ -1681,10 +1934,19 @@ TS;
             $deletedFiles[] = 'web/src/views/plugin/' . $pluginKebab . '/' . $kebabName . '/index.vue';
         }
 
-        // 清理空 Vue 视图目录
-        $this->removeEmptyDirectory($basePath . '/web/src/views/plugin/' . $pluginKebab . '/' . $kebabName);
+        $pluginIndexVuePath = $basePath . '/web/src/views/plugin/' . $pluginKebab . '/index.vue';
+        if (file_exists($pluginIndexVuePath)) {
+            unlink($pluginIndexVuePath);
+            $deletedFiles[] = 'web/src/views/plugin/' . $pluginKebab . '/index.vue';
+        }
 
-        // 5. 从 Admin/routes.php 中移除该资源的路由
+        $pluginRoutePath = $basePath . '/web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts';
+        if (file_exists($pluginRoutePath)) {
+            unlink($pluginRoutePath);
+            $deletedFiles[] = 'web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts';
+        }
+
+        // 5. 删除 Admin/routes.php 中该资源的路由，如果无其他路由则删除整个文件
         $adminRoutesPath = $pluginDir . '/Admin/routes.php';
         if (file_exists($adminRoutesPath)) {
             $content = file_get_contents($adminRoutesPath);
@@ -1692,7 +1954,7 @@ TS;
                 $escapedName = preg_quote($kebabName, '#');
                 $pattern = '#.*[\'"].*[/]' . $escapedName . '[\'"].*[\n\r]*#';
                 $newContent = preg_replace($pattern, '', $content);
-                $hasRoutes = preg_match("/Route::(get|post|put|delete|patch)/", $newContent);
+                $hasRoutes = preg_match("/Route::(get|post|put|delete|patch|apiResource)/", $newContent);
                 if (!$hasRoutes) {
                     unlink($adminRoutesPath);
                     $deletedFiles[] = 'plugins/' . $pluginStudly . '/Admin/routes.php';
@@ -1703,7 +1965,20 @@ TS;
             }
         }
 
-        // 6. 从 plugin.json 中移除对应的菜单和权限
+        // 6. 删除 Http 目录下的业务路由和控制器
+        $httpRoutesPath = $pluginDir . '/Http/routes.php';
+        if (file_exists($httpRoutesPath)) {
+            unlink($httpRoutesPath);
+            $deletedFiles[] = 'plugins/' . $pluginStudly . '/Http/routes.php';
+        }
+
+        $httpControllerPath = $pluginDir . '/Http/Controllers/' . $name . 'Controller.php';
+        if (file_exists($httpControllerPath)) {
+            unlink($httpControllerPath);
+            $deletedFiles[] = 'plugins/' . $pluginStudly . '/Http/Controllers/' . $name . 'Controller.php';
+        }
+
+        // 7. 从 plugin.json 中移除对应的菜单和权限
         $pluginJsonPath = $pluginDir . '/plugin.json';
         if (file_exists($pluginJsonPath)) {
             $jsonContent = file_get_contents($pluginJsonPath);
@@ -1740,13 +2015,11 @@ TS;
             }
         }
 
-        // 7. 清理空目录
-        $this->removeEmptyDirectory($pluginDir . '/Admin/Controllers');
-        $this->removeEmptyDirectory($pluginDir . '/Admin');
-        $this->removeEmptyDirectory($pluginDir . '/Models');
-        $this->removeEmptyDirectory($pluginDir . '/database');
+        // 8. 递归清理空目录
+        $this->removeEmptyDirectoryRecursive($pluginDir);
+        $this->removeEmptyDirectory($basePath . '/web/src/views/plugin/' . $pluginKebab);
 
-        // 8. 执行 composer dump-autoload 清理自动加载
+        // 9. 执行 composer dump-autoload 清理自动加载
         $composer = base_path('vendor/bin/composer') ?: 'composer';
         exec("{$composer} dump-autoload -q 2>&1");
 
@@ -1754,6 +2027,29 @@ TS;
             'files' => $deletedFiles,
             'message' => '代码已删除',
         ];
+    }
+
+    /**
+     * 递归删除空目录
+     */
+    protected function removeEmptyDirectoryRecursive(string $dir): void
+    {
+        if (!is_dir($dir)) return;
+
+        // 先递归删除子目录中的空目录
+        $files = array_diff(scandir($dir), ['.', '..']);
+        foreach ($files as $file) {
+            $fullPath = $dir . '/' . $file;
+            if (is_dir($fullPath)) {
+                $this->removeEmptyDirectoryRecursive($fullPath);
+            }
+        }
+
+        // 再次检查是否为空目录
+        $remainingFiles = array_diff(scandir($dir), ['.', '..']);
+        if (empty($remainingFiles)) {
+            rmdir($dir);
+        }
     }
 
     /**
@@ -1766,5 +2062,74 @@ TS;
         if (empty($files)) {
             rmdir($dir);
         }
+    }
+
+    /**
+     * 删除插件所有生成代码（整个插件目录 + 前端文件）
+     */
+    protected function doDeleteAll(array $config): array
+    {
+        $plugin = $config['plugin'];
+        $pluginStudly = Str::studly($plugin);
+        $pluginKebab = Str::kebab($plugin);
+        $basePath = base_path();
+        $deletedFiles = [];
+
+        // 安全检查：如果插件已安装，阻止删除
+        if (class_exists('\App\Admin\Models\Plugin')) {
+            $existing = \App\Admin\Models\Plugin::where('name', $pluginStudly)->first();
+            if ($existing) {
+                throw new \Exception('该插件已安装（名称：' . $existing->title . '），请先在插件管理中卸载后再删除代码');
+            }
+        }
+
+        // 1. 删除整个插件目录
+        $pluginDir = $basePath . '/plugins/' . $pluginStudly;
+        if (is_dir($pluginDir)) {
+            $this->deleteDirectoryRecursive($pluginDir);
+            $deletedFiles[] = 'plugins/' . $pluginStudly . '/';
+        }
+
+        // 2. 删除前端视图目录
+        $pluginVueDir = $basePath . '/web/src/views/plugin/' . $pluginKebab;
+        if (is_dir($pluginVueDir)) {
+            $this->deleteDirectoryRecursive($pluginVueDir);
+            $deletedFiles[] = 'web/src/views/plugin/' . $pluginKebab . '/';
+        }
+
+        // 3. 删除前端路由文件
+        $pluginRoutePath = $basePath . '/web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts';
+        if (file_exists($pluginRoutePath)) {
+            unlink($pluginRoutePath);
+            $deletedFiles[] = 'web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts';
+        }
+
+        // 4. 执行 composer dump-autoload
+        $composer = base_path('vendor/bin/composer') ?: 'composer';
+        exec("{$composer} dump-autoload -q 2>&1");
+
+        return [
+            'files' => $deletedFiles,
+            'message' => '插件代码全部删除成功',
+        ];
+    }
+
+    /**
+     * 递归删除整个目录（包括文件）
+     */
+    protected function deleteDirectoryRecursive(string $dir): void
+    {
+        if (!is_dir($dir)) return;
+
+        $files = array_diff(scandir($dir), ['.', '..']);
+        foreach ($files as $file) {
+            $fullPath = $dir . '/' . $file;
+            if (is_dir($fullPath)) {
+                $this->deleteDirectoryRecursive($fullPath);
+            } else {
+                unlink($fullPath);
+            }
+        }
+        rmdir($dir);
     }
 }

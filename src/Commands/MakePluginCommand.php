@@ -11,10 +11,10 @@ class MakePluginCommand extends Command
     use HasFileGeneration;
 
     protected $signature = 'make:plugin
-                            {name : Plugin name in snake_case (e.g. demo_plugin, shop)}
-                            {--force : Overwrite existing files}';
+                            {name : 插件标识（snake_case，如 demo_plugin、shop）}
+                            {--force : 覆盖已有文件}';
 
-    protected $description = 'Create a complete plugin structure with Admin/Http controllers, routes, config, and ServiceProvider';
+    protected $description = '创建完整插件骨架（Admin/Http 控制器、路由、前端资源目录、ServiceProvider）';
 
     public function handle(): int
     {
@@ -24,8 +24,8 @@ class MakePluginCommand extends Command
         $pluginPath = base_path("plugins/{$studlyName}");
 
         if (is_dir($pluginPath) && !$this->option('force')) {
-            $this->error("Plugin directory already exists: {$pluginPath}");
-            $this->line('  Use --force to overwrite');
+            $this->error("插件目录已存在：{$pluginPath}");
+            $this->line('  使用 --force 可覆盖');
             return Command::FAILURE;
         }
 
@@ -36,7 +36,7 @@ class MakePluginCommand extends Command
             '{{ pluginKebab }}' => $kebabName,
         ];
 
-        $this->info("Creating plugin [{$name}]...");
+        $this->info("正在创建插件 [{$name}]...");
         $this->newLine();
 
         // 1. plugin.json
@@ -47,15 +47,7 @@ class MakePluginCommand extends Command
         );
         $this->line("  <fg=green>✓</> plugin.json");
 
-        // 2. Config
-        $this->generateFile(
-            "{$pluginPath}/config/{$name}.php",
-            'plugin.config.stub',
-            $replacements
-        );
-        $this->line("  <fg=green>✓</> config/{$name}.php");
-
-        // 3. ServiceProvider
+        // 2. ServiceProvider
         $this->generateFile(
             "{$pluginPath}/Providers/PluginServiceProvider.php",
             'plugin.provider.stub',
@@ -63,7 +55,7 @@ class MakePluginCommand extends Command
         );
         $this->line("  <fg=green>✓</> Providers/PluginServiceProvider.php");
 
-        // 4. Admin Controller
+        // 3. Admin Controller
         $this->generateFile(
             "{$pluginPath}/Admin/Controllers/{$studlyName}Controller.php",
             'plugin.admin-controller.stub',
@@ -71,7 +63,7 @@ class MakePluginCommand extends Command
         );
         $this->line("  <fg=green>✓</> Admin/Controllers/{$studlyName}Controller.php");
 
-        // 5. Admin Routes
+        // 4. Admin Routes
         $this->generateFile(
             "{$pluginPath}/Admin/routes.php",
             'plugin.admin-routes.stub',
@@ -79,7 +71,7 @@ class MakePluginCommand extends Command
         );
         $this->line("  <fg=green>✓</> Admin/routes.php");
 
-        // 6. Http Controller
+        // 5. Http Controller
         $this->generateFile(
             "{$pluginPath}/Http/Controllers/{$studlyName}Controller.php",
             'plugin.http-controller.stub',
@@ -87,7 +79,7 @@ class MakePluginCommand extends Command
         );
         $this->line("  <fg=green>✓</> Http/Controllers/{$studlyName}Controller.php");
 
-        // 7. Http Routes
+        // 6. Http Routes
         $this->generateFile(
             "{$pluginPath}/Http/routes.php",
             'plugin.http-routes.stub',
@@ -95,7 +87,20 @@ class MakePluginCommand extends Command
         );
         $this->line("  <fg=green>✓</> Http/routes.php");
 
-        // 8. Empty directories
+        // 7. 前端资源目录（自包含）
+        foreach ([
+            'resources/views',
+            'resources/routes',
+            'resources/static/images',
+        ] as $dir) {
+            $dirPath = "{$pluginPath}/{$dir}";
+            if (!is_dir($dirPath)) {
+                mkdir($dirPath, 0755, true);
+            }
+        }
+        $this->line("  <fg=green>✓</> resources/ （前端资源目录）");
+
+        // 8. 后端空目录
         foreach (['Models', 'Services', 'Support', 'database/migrations', 'static'] as $dir) {
             $dirPath = "{$pluginPath}/{$dir}";
             if (!is_dir($dirPath)) {
@@ -105,20 +110,22 @@ class MakePluginCommand extends Command
                 file_put_contents("{$dirPath}/.gitkeep", '');
             }
         }
-        $this->line("  <fg=green>✓</> Directory structure");
+        $this->line("  <fg=green>✓</> 后端目录结构");
 
         $this->newLine();
-        $this->info("Plugin [{$name}] created successfully!");
+        $this->info("插件 [{$name}] 创建成功！");
         $this->newLine();
-        $this->line("  Plugin path: {$pluginPath}");
-        $this->line("  Admin API:   /plugin/{$name}/admin/*");
-        $this->line("  Business API: /plugin/{$name}/api/*");
+        $this->line("  插件路径：{$pluginPath}");
+        $this->line("  后台接口：/plugin/{$name}/admin/*");
+        $this->line("  业务接口：/plugin/{$name}/api/*");
+        $this->line("  前端资源：{$pluginPath}/resources/");
         $this->newLine();
-        $this->warn("Next steps:");
-        $this->line("  1. Review and customize the generated files");
-        $this->line("  2. Set 'enabled' to true in plugin.json");
-        $this->line("  3. Run: composer dump-autoload");
-        $this->line("  4. If using migrations: php artisan migrate");
+        $this->warn("后续步骤：");
+        $this->line("  1. 编辑 plugin.json 完善插件信息");
+        $this->line("  2. 将 enabled 设为 true");
+        $this->line("  3. 运行 composer dump-autoload");
+        $this->line("  4. 如有迁移文件：php artisan migrate");
+        $this->line("  5. 使用 make:plugin-page 添加页面");
 
         return Command::SUCCESS;
     }

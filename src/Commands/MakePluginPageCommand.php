@@ -106,15 +106,15 @@ class MakePluginPageCommand extends Command
 
         // 8. Generate Vue files if --vue flag is set
         if ($this->option('vue')) {
-            $this->generateVueFiles($pluginStudly, $pluginKebab, $replacements);
+            $this->generatePluginVueFiles($pluginStudly, $pluginKebab, $replacements);
         }
 
-        $this->warn('Next steps:');
-        $this->line("  1. Add routes in plugins/{$pluginStudly}/{$controllerType}/routes.php");
-        $this->line("  2. Run: php artisan migrate (if migration was created)");
+        $this->warn('后续步骤：');
+        $this->line("  1. 在 plugins/{$pluginStudly}/{$controllerType}/routes.php 中注册路由");
+        $this->line("  2. 在 plugin.json 中配置菜单和权限");
         if ($this->option('vue')) {
-            $this->line("  3. Register the Vue router in web/src/router/plugin.ts");
-            $this->line("  4. Import locale files in web/src/locale/zh-CN.ts and en-US.ts");
+            $this->line("  3. 在 plugins/{$pluginStudly}/resources/routes/ 中创建路由文件");
+            $this->line("  4. Vite 构建时会自动发现插件路由");
         }
 
         return Command::SUCCESS;
@@ -231,17 +231,11 @@ PHP;
     }
 
     /**
-     * Generate Vue frontend files
+     * 在插件 resources/ 目录下生成 Vue 前端文件
      */
-    protected function generateVueFiles(string $pluginStudly, string $pluginKebab, array $replacements): void
+    protected function generatePluginVueFiles(string $pluginStudly, string $pluginKebab, array $replacements): void
     {
-        $webPath = base_path('web');
-
-        // Check if web directory exists
-        if (!is_dir($webPath)) {
-            $this->warn('  Web directory not found, skipping Vue file generation.');
-            return;
-        }
+        $pluginPath = base_path("plugins/{$pluginStudly}");
 
         $kebabName = $replacements['{{ kebabName }}'];
         $viewName = $replacements['{{ viewName }}'];
@@ -249,10 +243,10 @@ PHP;
         $parentPath = $replacements['{{ parentPath }}'];
         $apiPrefix = $replacements['{{ apiPrefix }}'];
 
-        $this->info('Generating Vue files (DynamicCrud)...');
+        $this->info('正在生成插件前端文件...');
 
-        // 1. Generate Vue page (DynamicCrud wrapper)
-        $vuePagePath = "{$webPath}/src/views/plugin/{$pluginKebab}/{$viewName}/index.vue";
+        // 1. Vue 页面（DynamicCrud 包装器）
+        $vuePagePath = "{$pluginPath}/resources/views/{$viewName}/index.vue";
         $vuePageContent = <<<VUE
 <template>
   <DynamicCrud
@@ -269,46 +263,51 @@ PHP;
 VUE;
         $this->ensureDirectoryExists(dirname($vuePagePath));
         file_put_contents($vuePagePath, $vuePageContent);
-        $this->line("  <fg=green>✓</> Vue Page: src/views/plugin/{$pluginKebab}/{$viewName}/index.vue");
+        $this->line("  <fg=green>✓</> Vue 页面：resources/views/{$viewName}/index.vue");
 
-        // 2. Generate API file (for manual use if needed)
-        $apiFileName = "plugin-{$pluginKebab}-{$kebabName}";
-        $apiPath = "{$webPath}/src/api/{$apiFileName}.ts";
-        $this->generateFile(
-            $apiPath,
-            'vue-api.stub',
-            $replacements
-        );
-        $this->line("  <fg=green>✓</> API: src/api/{$apiFileName}.ts");
+        // 2. 前端路由文件（Vite 自动发现）
+        $routerPath = "{$pluginPath}/resources/routes/{$kebabName}.ts";
+        $routerContent = <<<TS
+export default [
+  {
+    path: '/plugin/{$pluginKebab}/{$kebabName}',
+    name: '{$pluginKebab}-{$kebabName}',
+    component: () => import('@plugins/{$pluginStudly}/resources/views/{$kebabName}/index.vue'),
+    meta: {
+      title: 'menu.{$parentPath}.{$kebabName}',
+      locale: true,
+    },
+  },
+];
+TS;
+        $this->ensureDirectoryExists(dirname($routerPath));
+        file_put_contents($routerPath, $routerContent);
+        $this->line("  <fg=green>✓</> 前端路由：resources/routes/{$kebabName}.ts");
 
-        // 3. Generate Router file
-        $routerFileName = "plugin-{$pluginKebab}-{$kebabName}";
-        $routerPath = "{$webPath}/src/router/routes/modules/{$routerFileName}.ts";
-        $this->generateFile(
-            $routerPath,
-            'vue-router-plugin.stub',
-            $replacements
-        );
-        $this->line("  <fg=green>✓</> Router: src/router/routes/modules/{$routerFileName}.ts");
+        // 3. 国际化文件
+        $localeZhPath = "{$pluginPath}/resources/views/{$viewName}/locale/zh-CN.ts";
+        $localeZhContent = <<<TS
+export default {
+  'menu.{$parentPath}': '{$title}管理',
+  'menu.{$parentPath}.{$kebabName}': '{$kebabName}列表',
+};
+TS;
+        $this->ensureDirectoryExists(dirname($localeZhPath));
+        file_put_contents($localeZhPath, $localeZhContent);
+        $this->line("  <fg=green>✓</> 中文语言包：resources/views/{$viewName}/locale/zh-CN.ts");
 
-        // 4. Generate Locale files
-        $localeZhPath = "{$webPath}/src/locale/plugin/{$pluginKebab}/{$kebabName}/zh-CN.ts";
-        $this->generateFile(
-            $localeZhPath,
-            'vue-locale-zh.stub',
-            $replacements
-        );
-        $this->line("  <fg=green>✓</> Locale (zh-CN): src/locale/plugin/{$pluginKebab}/{$kebabName}/zh-CN.ts");
+        $localeEnPath = "{$pluginPath}/resources/views/{$viewName}/locale/en-US.ts";
+        $localeEnContent = <<<TS
+export default {
+  'menu.{$parentPath}': '{$title} Management',
+  'menu.{$parentPath}.{$kebabName}': '{$kebabName} List',
+};
+TS;
+        $this->ensureDirectoryExists(dirname($localeEnPath));
+        file_put_contents($localeEnPath, $localeEnContent);
+        $this->line("  <fg=green>✓</> 英文语言包：resources/views/{$viewName}/locale/en-US.ts");
 
-        $localeEnPath = "{$webPath}/src/locale/plugin/{$pluginKebab}/{$kebabName}/en-US.ts";
-        $this->generateFile(
-            $localeEnPath,
-            'vue-locale-en.stub',
-            $replacements
-        );
-        $this->line("  <fg=green>✓</> Locale (en-US): src/locale/plugin/{$pluginKebab}/{$kebabName}/en-US.ts");
-
-        // 5. Ensure dynamic components exist
+        // 4. 确保 DynamicCrud 组件存在
         $this->ensureDynamicComponentsExist();
 
         $this->newLine();

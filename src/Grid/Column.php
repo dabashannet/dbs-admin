@@ -211,6 +211,15 @@ class Column
         return $this;
     }
 
+    /**
+     * 自定义显示内容（通过闭包处理值转换）
+     */
+    public function display(\Closure $callback): self
+    {
+        $this->formatCallback = $callback;
+        return $this;
+    }
+
     // ==================== 修饰方法 ====================
 
     public function default(?string $value): self

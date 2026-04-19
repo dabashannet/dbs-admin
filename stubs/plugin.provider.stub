@@ -10,10 +10,7 @@ class PluginServiceProvider extends ServiceProvider
 
     public function register(): void
     {
-        $configPath = dirname(__DIR__) . '/config/' . $this->pluginName . '.php';
-        if (file_exists($configPath)) {
-            $this->mergeConfigFrom($configPath, $this->pluginName);
-        }
+        // 插件注册逻辑（按需扩展）
     }
 
     public function boot(): void

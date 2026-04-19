@@ -42,8 +42,8 @@ class CodeGeneratorController extends AdminController
                 ->help('如 User、Order、ProductCategory')
             ->select('type', '生成类型')
                 ->options([
-                    'core' => '核心模块（app/Admin + web/src/views/system）',
-                    'plugin' => '插件模块（plugins/{Name} + web/src/views/plugin）',
+                    'core' => '核心模块（app/Admin + resource/views）',
+                    'plugin' => '插件模块（plugins/{Name} + resource/views）',
                 ])
                 ->default('core')
                 ->required()
@@ -443,13 +443,13 @@ class CodeGeneratorController extends AdminController
                     'content' => $serviceProvider,
                 ];
                 $pluginFiles['plugin_index_vue'] = [
-                    'path' => "web/src/views/plugin/{$pluginKebab}/index.vue",
+                    'path' => "plugins/{$pluginStudly}/resources/views/index.vue",
                     'content' => $pluginIndexVue,
                 ];
 
                 $files[] = "plugins/{$pluginStudly}/plugin.json";
                 $files[] = "plugins/{$pluginStudly}/PluginServiceProvider.php";
-                $files[] = "web/src/views/plugin/{$pluginKebab}/index.vue";
+                $files[] = "plugins/{$pluginStudly}/resources/views/index.vue";
             }
 
             // 无论新旧都生成 Admin 路由文件和业务端页面
@@ -465,7 +465,7 @@ class CodeGeneratorController extends AdminController
                 'content' => $adminRoutes,
             ];
             $pluginFiles['business_vue'] = [
-                'path' => "web/src/views/plugin/{$pluginKebab}/{$kebabName}.vue",
+                'path' => "plugins/{$pluginStudly}/resources/views/{$kebabName}/index.vue",
                 'content' => $businessVue,
             ];
             $pluginFiles['http_routes'] = [
@@ -476,9 +476,14 @@ class CodeGeneratorController extends AdminController
                 'path' => "plugins/{$pluginStudly}/Http/Controllers/{$name}Controller.php",
                 'content' => $httpController,
             ];
+            $pluginFiles['plugin_routes'] = [
+                'path' => "plugins/{$pluginStudly}/resources/routes/{$kebabName}.ts",
+                'content' => $this->generatePluginResourceRoutes($pluginStudly, $pluginKebab, $kebabName, $name),
+            ];
 
             $files[] = "plugins/{$pluginStudly}/Admin/routes.php";
-            $files[] = "web/src/views/plugin/{$pluginKebab}/{$kebabName}.vue";
+            $files[] = "plugins/{$pluginStudly}/resources/views/{$kebabName}/index.vue";
+            $files[] = "plugins/{$pluginStudly}/resources/routes/{$kebabName}.ts";
             $files[] = "plugins/{$pluginStudly}/Http/routes.php";
             $files[] = "plugins/{$pluginStudly}/Http/Controllers/{$name}Controller.php";
         }
@@ -490,30 +495,37 @@ class CodeGeneratorController extends AdminController
             ? "plugins/{$pluginStudly}/database/migrations/{$timestamp}_create_{$tableName}_table.php"
             : "database/migrations/{$timestamp}_create_{$tableName}_table.php";
 
+        // 基础预览文件
+        $basePreview = [
+            'controller' => [
+                'path' => $this->getControllerPath($name, $config['type'], $plugin),
+                'content' => $controllerCode,
+            ],
+            'model' => [
+                'path' => $this->getModelPath($modelName, $config['type'], $plugin),
+                'content' => $modelCode,
+            ],
+            'migration' => [
+                'path' => $migrationPath,
+                'content' => $migrationCode,
+            ],
+            'vue' => [
+                'path' => $this->getVuePath($parent, $kebabName, $config['type'], $plugin),
+                'content' => $vueCode,
+            ],
+        ];
+
+        // 插件模式不使用 router 键（路由由 plugin_routes 键提供）
+        if ($config['type'] !== 'plugin') {
+            $basePreview['router'] = [
+                'path' => $this->getRouterPath($parent, $kebabName, $config['type'], $pluginKebab),
+                'content' => $routerCode,
+            ];
+        }
+
         return [
             'files' => $files,
-            'preview' => array_merge([
-                'controller' => [
-                    'path' => $this->getControllerPath($name, $config['type'], $plugin),
-                    'content' => $controllerCode,
-                ],
-                'model' => [
-                    'path' => $this->getModelPath($modelName, $config['type'], $plugin),
-                    'content' => $modelCode,
-                ],
-                'migration' => [
-                    'path' => $migrationPath,
-                    'content' => $migrationCode,
-                ],
-                'vue' => [
-                    'path' => $this->getVuePath($parent, $kebabName, $config['type'], $plugin),
-                    'content' => $vueCode,
-                ],
-                'router' => [
-                    'path' => $this->getRouterPath($parent, $kebabName, $config['type'], $pluginKebab),
-                    'content' => $routerCode,
-                ],
-            ], $pluginFiles),
+            'preview' => array_merge($basePreview, $pluginFiles),
         ];
     }
 
@@ -1642,6 +1654,46 @@ const pluginTitle = ref('{$pluginTitle}');
 VUE;
     }
 
+    /**
+     * 生成插件资源路由文件（放在插件自己的 resources/routes/ 目录下）
+     */
+    protected function generatePluginResourceRoutes(string $pluginStudly, string $pluginKebab, string $kebabName, string $name): string
+    {
+        return <<<TS
+import { DEFAULT_LAYOUT } from '@/router/routes/base';
+import { AppRouteRecordRaw } from '@/router/routes/types';
+
+const {$name}: AppRouteRecordRaw = {
+  path: '/plugin/{$pluginKebab}',
+  name: '{$pluginStudly}',
+  component: () => import('@plugins/{$pluginKebab}/views/index.vue'),
+  redirect: '/plugin/{$pluginKebab}/{$kebabName}',
+  meta: {
+    locale: 'menu.plugin.{$pluginKebab}',
+    icon: 'icon-apps',
+    requiresAuth: true,
+    order: 80,
+    hideChildrenInMenu: true,
+  },
+  children: [
+    {
+      path: '{$kebabName}',
+      name: '{$name}',
+      component: () => import('@plugins/{$pluginKebab}/views/{$kebabName}/index.vue'),
+      meta: {
+        locale: 'menu.plugin.{$pluginKebab}.{$kebabName}',
+        requiresAuth: true,
+        roles: ['*'],
+        hideInMenu: true,
+      },
+    },
+  ],
+};
+
+export default {$name};
+TS;
+    }
+
     protected function getGeneratedFiles(string $name, string $kebabName, string $parent, string $type, ?string $plugin, string $table, ?string $pluginKebab = null): array
     {
         $files = [];
@@ -1660,19 +1712,18 @@ VUE;
             // Admin 路由
             $files[] = "plugins/{$pluginStudly}/Admin/routes.php";
 
-            // Vue 页面（主页面 + 业务页面）
-            $files[] = "web/src/views/plugin/{$pluginKebab}/index.vue";
-            $files[] = "web/src/views/plugin/{$pluginKebab}/{$kebabName}.vue";
+            // 插件资源：Vue 页面（插件首页 + 业务页面）
+            $files[] = "plugins/{$pluginStudly}/resources/views/index.vue";
+            $files[] = "plugins/{$pluginStudly}/resources/views/{$kebabName}/index.vue";
+
+            // 插件资源：路由文件
+            $files[] = "plugins/{$pluginStudly}/resources/routes/{$kebabName}.ts";
 
             // Http 路由和控制器
             $files[] = "plugins/{$pluginStudly}/Http/routes.php";
             $files[] = "plugins/{$pluginStudly}/Http/Controllers/{$name}Controller.php";
 
-            // 插件路由文件
-            $files[] = "web/src/router/routes/modules/plugin-{$pluginKebab}.ts";
-
             // 新插件额外文件（plugin.json 和 ServiceProvider）
-            // 这里无法判断是否为新插件，所以也列出来（实际查看时可能存在）
             $files[] = "plugins/{$pluginStudly}/plugin.json";
             $files[] = "plugins/{$pluginStudly}/PluginServiceProvider.php";
         } else {
@@ -1683,8 +1734,8 @@ VUE;
             $files[] = "database/migrations/{$timestamp}_create_{$table}_table.php";
             $files[] = $this->getVuePath($parent, $kebabName, $type, $plugin);
             $files[] = $this->getRouterPath($parent, $kebabName, $type, $pluginKebab);
-            $files[] = "web/src/views/{$parent}/{$kebabName}/locale/zh-CN.ts";
-            $files[] = "web/src/views/{$parent}/{$kebabName}/locale/en-US.ts";
+            $files[] = "resource/views/{$parent}/{$kebabName}/locale/zh-CN.ts";
+            $files[] = "resource/views/{$parent}/{$kebabName}/locale/en-US.ts";
         }
 
         return $files;
@@ -1708,153 +1759,15 @@ VUE;
     protected function getVuePath(string $parent, string $kebabName, string $type, ?string $plugin): string
     {
         return $type === 'plugin'
-            ? "web/src/views/plugin/" . Str::kebab($plugin) . "/{$kebabName}/index.vue"
-            : "web/src/views/{$parent}/{$kebabName}/index.vue";
+            ? "plugins/" . Str::studly($plugin) . "/resources/views/{$kebabName}/index.vue"
+            : "resource/views/{$parent}/{$kebabName}/index.vue";
     }
 
     protected function getRouterPath(string $parent, string $kebabName, string $type, ?string $pluginKebab = null): string
     {
         return $type === 'plugin'
-            ? "web/src/router/routes/modules/plugin-{$pluginKebab}.ts"
-            : "web/src/router/routes/modules/{$parent}-{$kebabName}.ts";
-    }
-
-    /**
-     * 将插件路由追加到 plugin-{pluginKebab}.ts 文件
-     */
-    protected function appendPluginRouteToPluginTs(string $pluginKebab, string $childRouteCode, bool $isNewPlugin): string
-    {
-        $pluginTsPath = base_path('web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts');
-        $pluginStudly = Str::studly($pluginKebab);
-
-        if ($isNewPlugin || !file_exists($pluginTsPath)) {
-            // 新插件：创建独立的 plugin-{pluginKebab}.ts 文件
-            $content = <<<TS
-/*
- * @Author: Author dabashan.cc
- * @Date: {$this->formatDate()}
- * @LastEditTime: {$this->formatDate()}
- * @LastEditors: LastEditors
- * @Copyright: Copyright (c) 2026 by Dabashan.cc, All Rights Reserved.
- */
-import { DEFAULT_LAYOUT } from '../base';
-import { AppRouteRecordRaw } from '../types';
-
-const PLUGIN: AppRouteRecordRaw = {
-  path: '/plugin',
-  name: 'Plugin',
-  component: DEFAULT_LAYOUT,
-  redirect: '/plugin/index',
-  meta: {
-    locale: 'menu.plugin',
-    icon: 'icon-apps',
-    requiresAuth: true,
-    order: 80,
-    hideChildrenInMenu: true,
-  },
-  children: [
-    // {$pluginStudly} Plugin
-    {
-      path: '{$pluginKebab}',
-      name: '{$pluginStudly}',
-      component: () => import('@/views/plugin/components/PluginLayout.vue'),
-      redirect: '/plugin/{$pluginKebab}/index',
-      meta: {
-        locale: 'menu.plugin.{$pluginKebab}',
-        requiresAuth: true,
-        roles: ['*'],
-        hideInMenu: true,
-      },
-      children: [
-        {
-          path: 'index',
-          name: '{$pluginStudly}Index',
-          component: () => import('@/views/plugin/{$pluginKebab}/index.vue'),
-          meta: {
-            locale: 'menu.plugin.{$pluginKebab}.config',
-            requiresAuth: true,
-            roles: ['*'],
-            hideInMenu: true,
-          },
-        },
-        {$childRouteCode}
-      ],
-    },
-  ],
-};
-
-export default PLUGIN;
-TS;
-        } else {
-            // 已有插件：在该文件的 plugin group children 数组末尾追加
-            $content = file_get_contents($pluginTsPath);
-            if ($content === false) {
-                throw new \Exception("无法读取 plugin-{$pluginKebab}.ts 文件");
-            }
-
-            // 逐行解析，找到 plugin group 的 children 数组，在 ], 前追加
-            $lines = explode("\n", $content);
-            $inGroup = false;
-            $groupFound = false;
-            $insertIndex = -1;
-            $childrenBracketFound = false;
-
-            foreach ($lines as $i => $line) {
-                $trimmed = trim($line);
-
-                // 检测是否进入目标 plugin group
-                if (!$groupFound && preg_match('/name:\s*\'' . preg_quote($pluginStudly, '/') . '\'/', $trimmed)) {
-                    $inGroup = true;
-                    continue;
-                }
-
-                if ($inGroup) {
-                    // 检测 children: [ 的开始
-                    if (!$childrenBracketFound && strpos($trimmed, 'children: [') !== false) {
-                        $childrenBracketFound = true;
-                        // 计算缩进，找到应该插入的位置
-                        continue;
-                    }
-
-                    if ($childrenBracketFound) {
-                        // 找到 children 数组的结束位置
-                        if (str_starts_with($trimmed, '],')) {
-                            $insertIndex = $i;
-                            break;
-                        }
-                    }
-
-                    // 如果遇到了同级或更浅的 }, 说明 children 数组结束了
-                    if ($trimmed === '},' || $trimmed === '},') {
-                        if (!$childrenBracketFound) {
-                            // 没有 children 数组，跳过这个 group
-                            $inGroup = false;
-                            continue;
-                        }
-                    }
-                }
-            }
-
-            if ($insertIndex > 0) {
-                $indent = str_repeat(' ', 8);
-                $newLine = $indent . trim($childRouteCode);
-                array_splice($lines, $insertIndex, 0, [$newLine]);
-                $content = implode("\n", $lines);
-            }
-        }
-
-        // 确保目录存在
-        $dir = dirname($pluginTsPath);
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
-
-        $result = file_put_contents($pluginTsPath, $content);
-        if ($result === false) {
-            throw new \Exception("无法写入 plugin-{$pluginKebab}.ts 文件");
-        }
-
-        return $pluginTsPath;
+            ? "plugins/" . Str::studly($pluginKebab) . "/resources/routes/{$kebabName}.ts"
+            : "resource/routes/{$parent}-{$kebabName}.ts";
     }
 
     protected function formatDate(): string
@@ -1869,12 +1782,7 @@ TS;
         $writtenFiles = [];
         $isPlugin = $config['type'] === 'plugin';
 
-        foreach ($preview['preview'] as $key => $fileInfo) {
-            // 插件模式跳过 router 键（使用动态路由加载）
-            if ($key === 'router' && $isPlugin) {
-                continue;
-            }
-
+        foreach ($preview['preview'] as $fileInfo) {
             $path = $fileInfo['path'];
             $content = $fileInfo['content'];
             $fullPath = $basePath . '/' . $path;
@@ -1932,7 +1840,6 @@ TS;
             }
         }
 
-        $pluginKebab = Str::kebab($plugin);
         $pluginDir = $basePath . '/plugins/' . $pluginStudly;
 
         // 1. 删除 Controller 文件
@@ -1949,41 +1856,37 @@ TS;
             $deletedFiles[] = 'plugins/' . $pluginStudly . '/Models/' . $name . '.php';
         }
 
-        // 3. 删除 Migration 文件（按名称匹配）
+        // 3. 删除 Migration 文件（按表名匹配）
         $migrationDir = $pluginDir . '/database/migrations';
         if (is_dir($migrationDir)) {
+            $snakeName = Str::snake($name);
             foreach (scandir($migrationDir) as $file) {
                 if ($file === '.' || $file === '..') continue;
-                if (stripos($file, 'create') !== false && stripos($file, $kebabName) !== false) {
+                if (stripos($file, 'create') !== false && stripos($file, $snakeName) !== false) {
                     unlink($migrationDir . '/' . $file);
                     $deletedFiles[] = 'plugins/' . $pluginStudly . '/database/migrations/' . $file;
                 }
             }
         }
 
-        // 4. 删除 Vue 视图文件
-        $businessVuePath = $basePath . '/web/src/views/plugin/' . $pluginKebab . '/' . $kebabName . '.vue';
+        // 4. 删除 Vue 视图文件（插件资源目录）
+        $businessVuePath = $pluginDir . '/resources/views/' . $kebabName . '/index.vue';
         if (file_exists($businessVuePath)) {
             unlink($businessVuePath);
-            $deletedFiles[] = 'web/src/views/plugin/' . $pluginKebab . '/' . $kebabName . '.vue';
+            $deletedFiles[] = 'plugins/' . $pluginStudly . '/resources/views/' . $kebabName . '/index.vue';
         }
 
-        $crudVuePath = $basePath . '/web/src/views/plugin/' . $pluginKebab . '/' . $kebabName . '/index.vue';
-        if (file_exists($crudVuePath)) {
-            unlink($crudVuePath);
-            $deletedFiles[] = 'web/src/views/plugin/' . $pluginKebab . '/' . $kebabName . '/index.vue';
-        }
-
-        $pluginIndexVuePath = $basePath . '/web/src/views/plugin/' . $pluginKebab . '/index.vue';
+        $pluginIndexVuePath = $pluginDir . '/resources/views/index.vue';
         if (file_exists($pluginIndexVuePath)) {
             unlink($pluginIndexVuePath);
-            $deletedFiles[] = 'web/src/views/plugin/' . $pluginKebab . '/index.vue';
+            $deletedFiles[] = 'plugins/' . $pluginStudly . '/resources/views/index.vue';
         }
 
-        $pluginRoutePath = $basePath . '/web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts';
+        // 删除插件路由文件
+        $pluginRoutePath = $pluginDir . '/resources/routes/' . $kebabName . '.ts';
         if (file_exists($pluginRoutePath)) {
             unlink($pluginRoutePath);
-            $deletedFiles[] = 'web/src/router/routes/modules/plugin-' . $pluginKebab . '.ts';
+            $deletedFiles[] = 'plugins/' . $pluginStudly . '/resources/routes/' . $kebabName . '.ts';
         }
 
         // 5. 删除 Admin/routes.php 中该资源的路由，如果无其他路由则删除整个文件
@@ -2057,7 +1960,6 @@ TS;
 
         // 8. 递归清理空目录
         $this->removeEmptyDirectoryRecursive($pluginDir);
-        $this->removeEmptyDirectory($basePath . '/web/src/views/plugin/' . $pluginKebab);
 
         // 9. 执行 composer dump-autoload 清理自动加载
         $composer = base_path('vendor/bin/composer') ?: 'composer';

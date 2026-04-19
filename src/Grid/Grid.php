@@ -94,6 +94,16 @@ class Grid
         return $this;
     }
 
+    /**
+     * 魔法方法：将未定义的方法转发到最后创建的 Column
+     * 支持 limit()、display()、badge()、image()、progress() 等 Column 方法链式调用
+     */
+    public function __call(string $name, array $arguments): self
+    {
+        $this->lastColumn?->$name(...$arguments);
+        return $this;
+    }
+
     // ==================== 筛选器 ====================
 
     public function filter(string $key, string $title, string $type = 'like'): self

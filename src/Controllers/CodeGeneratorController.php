@@ -163,6 +163,19 @@ class CodeGeneratorController extends AdminController
         return $names;
     }
 
+    protected function pluginBaseInfo(string $plugin): array
+    {
+        $pluginSnake = Str::snake($plugin);
+        $pluginStudly = Str::studly($pluginSnake);
+
+        return [
+            'snake' => $pluginSnake,
+            'studly' => $pluginStudly,
+            'dir' => base_path("plugins/{$pluginStudly}"),
+            'json_path' => base_path("plugins/{$pluginStudly}/plugin.json"),
+        ];
+    }
+
     /**
      * 获取生成器配置（字段类型、可用选项等）
      */
@@ -187,6 +200,7 @@ class CodeGeneratorController extends AdminController
             'fields' => 'nullable|array',
             'grid_columns' => 'nullable|array',
             'filters' => 'nullable|array',
+            'filter_layout' => 'nullable|array',
             'indexes' => 'nullable|array',
             'icon' => 'nullable|string',
             'order' => 'nullable|integer',
@@ -195,6 +209,77 @@ class CodeGeneratorController extends AdminController
         $preview = $this->generatePreview($validated);
 
         return $this->success($preview);
+    }
+
+    public function previewAll(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $validated = $request->validate([
+            'type' => 'required|in:plugin',
+            'plugin' => 'required|string',
+            'plugin_title' => 'nullable|string',
+            'parent' => 'nullable|string',
+            'icon' => 'nullable|string',
+            'order' => 'nullable|integer',
+            'tables' => 'required|array|min:1',
+            'tables.*.name' => 'required|string',
+            'tables.*.table' => 'nullable|string',
+            'tables.*.fillable' => 'nullable|array',
+            'tables.*.fields' => 'nullable|array',
+            'tables.*.grid_columns' => 'nullable|array',
+            'tables.*.filters' => 'nullable|array',
+            'tables.*.filter_layout' => 'nullable|array',
+            'tables.*.indexes' => 'nullable|array',
+            'tables.*.icon' => 'nullable|string',
+            'tables.*.order' => 'nullable|integer',
+        ]);
+
+        $virtualFiles = [];
+        $allFiles = [];
+        $allPreview = [];
+
+        $base = [
+            'type' => 'plugin',
+            'plugin' => $validated['plugin'],
+            'plugin_title' => $validated['plugin_title'] ?? null,
+            'parent' => $validated['parent'] ?? null,
+            'icon' => $validated['icon'] ?? null,
+            'order' => $validated['order'] ?? null,
+        ];
+
+        foreach ($validated['tables'] as $tableCfg) {
+            $config = array_merge($base, [
+                'name' => $tableCfg['name'],
+                'table' => $tableCfg['table'] ?? null,
+                'fillable' => $tableCfg['fillable'] ?? null,
+                'fields' => $tableCfg['fields'] ?? null,
+                'grid_columns' => $tableCfg['grid_columns'] ?? null,
+                'filters' => $tableCfg['filters'] ?? null,
+                'filter_layout' => $tableCfg['filter_layout'] ?? null,
+                'indexes' => $tableCfg['indexes'] ?? null,
+                'icon' => $tableCfg['icon'] ?? ($base['icon'] ?? null),
+                'order' => $tableCfg['order'] ?? ($base['order'] ?? null),
+                '_virtual_files' => $virtualFiles,
+            ]);
+
+            $preview = $this->generatePreview($config);
+
+            foreach (($preview['files'] ?? []) as $path) {
+                $allFiles[$path] = true;
+            }
+
+            foreach (($preview['preview'] ?? []) as $fileInfo) {
+                $allPreview[$fileInfo['path']] = [
+                    'path' => $fileInfo['path'],
+                    'content' => $fileInfo['content'],
+                ];
+                $virtualFiles[$fileInfo['path']] = $fileInfo['content'];
+            }
+        }
+
+        return $this->success([
+            'files' => array_keys($allFiles),
+            'preview' => $allPreview,
+        ]);
     }
 
     /**
@@ -213,6 +298,7 @@ class CodeGeneratorController extends AdminController
             'fields' => 'nullable|array',
             'grid_columns' => 'nullable|array',
             'filters' => 'nullable|array',
+            'filter_layout' => 'nullable|array',
             'indexes' => 'nullable|array',
             'icon' => 'nullable|string',
             'order' => 'nullable|integer',
@@ -262,7 +348,7 @@ class CodeGeneratorController extends AdminController
         $kebabName = Str::kebab($validated['name']);
         $type = $validated['type'];
         $plugin = $validated['plugin'] ?? null;
-        $pluginKebab = $plugin ? Str::kebab($plugin) : null;
+        $pluginKebab = $plugin ? Str::snake($plugin) : null;
         $parent = $validated['parent'] ?? 'system';
         $tables = $validated['tables'] ?? [];
         $table = $tables[0] ?? ($type === 'plugin'
@@ -376,7 +462,7 @@ class CodeGeneratorController extends AdminController
         $pluralSnake = Str::snake(Str::plural($name));
         $parent = $config['parent'] ?? 'system';
         $plugin = $config['plugin'] ?? null;
-        $pluginKebab = $plugin ? Str::kebab($plugin) : null;
+        $pluginKebab = $plugin ? Str::snake($plugin) : null;
         $tableName = $config['table'] ?? ($config['type'] === 'plugin'
             ? "p_{$pluginKebab}_{$pluralSnake}"
             : "admin_{$pluralSnake}");
@@ -388,15 +474,28 @@ class CodeGeneratorController extends AdminController
         $gridColumns = $config['grid_columns'] ?? [];
         $indexes = $config['indexes'] ?? [];
 
+        $virtualFiles = $config['_virtual_files'] ?? [];
+
         // 判断是已有插件还是新插件
         $isNewPlugin = false;
         if ($config['type'] === 'plugin' && $plugin) {
-            $existingPlugins = $this->getExistingPluginNames();
-            $isNewPlugin = !in_array($pluginKebab, $existingPlugins, true);
+            $info = $this->pluginBaseInfo($plugin);
+            $virtualPluginJsonKey = "plugins/{$info['studly']}/plugin.json";
+            $isNewPlugin = !file_exists($info['json_path']) && !array_key_exists($virtualPluginJsonKey, $virtualFiles);
         }
 
         // 生成 Controller 代码
-        $controllerCode = $this->generateControllerCode($name, $controllerName, $modelName, $config['type'], $fields, $gridColumns, $config['filters'] ?? [], $plugin);
+        $controllerCode = $this->generateControllerCode(
+            $name,
+            $controllerName,
+            $modelName,
+            $config['type'],
+            $fields,
+            $gridColumns,
+            $config['filters'] ?? [],
+            $config['filter_layout'] ?? [],
+            $plugin
+        );
 
         // 生成 Model 代码
         $modelCode = $this->generateModelCode($modelName, $tableName, $config['fillable'] ?? [], $config['type'], $plugin);
@@ -429,7 +528,7 @@ class CodeGeneratorController extends AdminController
             // 新插件才生成 plugin.json、ServiceProvider 等脚手架文件
             if ($isNewPlugin) {
                 $pluginTitle = $config['plugin_title'] ?? '';
-                $pluginStudly = Str::studly($plugin);
+                $pluginStudly = Str::studly(Str::snake($plugin));
                 $pluginJson = $this->generatePluginJson($plugin, $pluginTitle, $name, $kebabName, $icon);
                 $serviceProvider = $this->generatePluginServiceProvider($plugin, $name);
                 $pluginIndexVue = $this->generatePluginIndexVue($pluginTitle ?: $pluginStudly);
@@ -453,20 +552,40 @@ class CodeGeneratorController extends AdminController
             }
 
             // 无论新旧都生成 Admin 路由文件和业务端页面
-            $adminRoutes = $this->generatePluginAdminRoutes($plugin, $name, $kebabName);
-            $businessVue = $this->generateBusinessVueCode($pluginKebab, $kebabName, $name);
+            $pluginTitle = $config['plugin_title'] ?? null;
+            $pluginStudly = Str::studly(Str::snake($plugin));
+            $adminRoutesKey = "plugins/{$pluginStudly}/Admin/routes.php";
+            $httpRoutesKey = "plugins/{$pluginStudly}/Http/routes.php";
+            $pluginJsonKey = "plugins/{$pluginStudly}/plugin.json";
+            $pluginRoutesKey = "plugins/{$pluginStudly}/resources/routes/index.ts";
+
+            $adminRoutes = $this->mergePluginAdminRoutesForResource(
+                $plugin,
+                $name,
+                $kebabName,
+                $virtualFiles[$adminRoutesKey] ?? null
+            );
 
             // 生成 Http 目录下的业务路由和控制器
-            $httpRoutes = $this->generatePluginHttpRoutes($plugin, $name, $kebabName);
+            $httpRoutes = $this->mergePluginHttpRoutesForResource(
+                $plugin,
+                $name,
+                $kebabName,
+                $virtualFiles[$httpRoutesKey] ?? null
+            );
             $httpController = $this->generatePluginHttpController($plugin, $name);
+            $pluginJsonUpdate = $this->mergePluginJsonForResource(
+                $plugin,
+                $pluginTitle,
+                $name,
+                $kebabName,
+                $icon,
+                $virtualFiles[$pluginJsonKey] ?? null
+            );
 
             $pluginFiles['admin_routes'] = [
                 'path' => "plugins/{$pluginStudly}/Admin/routes.php",
                 'content' => $adminRoutes,
-            ];
-            $pluginFiles['business_vue'] = [
-                'path' => "plugins/{$pluginStudly}/resources/views/{$kebabName}/index.vue",
-                'content' => $businessVue,
             ];
             $pluginFiles['http_routes'] = [
                 'path' => "plugins/{$pluginStudly}/Http/routes.php",
@@ -477,20 +596,27 @@ class CodeGeneratorController extends AdminController
                 'content' => $httpController,
             ];
             $pluginFiles['plugin_routes'] = [
-                'path' => "plugins/{$pluginStudly}/resources/routes/{$kebabName}.ts",
-                'content' => $this->generatePluginResourceRoutes($pluginStudly, $pluginKebab, $kebabName, $name),
+                'path' => $pluginRoutesKey,
+                'content' => $this->generatePluginRoutesIndex($pluginStudly, $pluginKebab, $kebabName, $virtualFiles),
             ];
+            if (!$isNewPlugin) {
+                $pluginFiles['plugin_json_update'] = [
+                    'path' => "plugins/{$pluginStudly}/plugin.json",
+                    'content' => $pluginJsonUpdate,
+                ];
+                $files[] = "plugins/{$pluginStudly}/plugin.json";
+            }
 
             $files[] = "plugins/{$pluginStudly}/Admin/routes.php";
             $files[] = "plugins/{$pluginStudly}/resources/views/{$kebabName}/index.vue";
-            $files[] = "plugins/{$pluginStudly}/resources/routes/{$kebabName}.ts";
+            $files[] = "plugins/{$pluginStudly}/resources/routes/index.ts";
             $files[] = "plugins/{$pluginStudly}/Http/routes.php";
             $files[] = "plugins/{$pluginStudly}/Http/Controllers/{$name}Controller.php";
         }
 
         // 迁移路径：插件放 plugin 自己的 database/migrations，核心放全局 database/migrations
         $timestamp = date('Y_m_d_His');
-        $pluginStudly = $plugin ? Str::studly($plugin) : null;
+        $pluginStudly = $plugin ? Str::studly(Str::snake($plugin)) : null;
         $migrationPath = $config['type'] === 'plugin'
             ? "plugins/{$pluginStudly}/database/migrations/{$timestamp}_create_{$tableName}_table.php"
             : "database/migrations/{$timestamp}_create_{$tableName}_table.php";
@@ -529,7 +655,7 @@ class CodeGeneratorController extends AdminController
         ];
     }
 
-    protected function generateControllerCode(string $name, string $controllerName, string $modelName, string $type, array $fields, array $gridColumns, array $filters = [], ?string $plugin = null): string
+    protected function generateControllerCode(string $name, string $controllerName, string $modelName, string $type, array $fields, array $gridColumns, array $filters = [], array $filterLayout = [], ?string $plugin = null): string
     {
         $pluginStudly = $plugin ? Str::studly($plugin) : null;
         $namespace = $type === 'plugin'
@@ -543,6 +669,10 @@ class CodeGeneratorController extends AdminController
         $gridColumnsCode = $this->formatGridColumns($gridColumns, $fields);
         $formFieldsCode = $this->formFields($fields);
         $filterCode = $this->formatGridFilters($filters, $fields);
+        $filterLayoutCode = '';
+        if (!empty($filterLayout) && is_array($filterLayout)) {
+            $filterLayoutCode = "\n        \$grid->filterLayout(" . var_export($filterLayout, true) . ");";
+        }
 
         $date = $this->formatDate();
 
@@ -552,10 +682,9 @@ class CodeGeneratorController extends AdminController
 /**
  * {$controllerName} 控制器
  *
- * @Author: Author dabashan.cc
+ * @Author: DbsAdmin Generator
  * @Date: {$date}
  * @LastEditTime: {$date}
- * @Copyright: Copyright (c) 2026 by Dabashan.cc, All Rights Reserved.
  * @Source: Dbs-Admin 代码生成器快速生成
  * @Wiki: 更多问题请查看 wiki.dabashan.cc
  */
@@ -581,6 +710,7 @@ class {$controllerName} extends AdminController
     protected function configureActions(Grid \$grid): void
     {
         {$filterCode}
+        {$filterLayoutCode}
     }
 
     protected function form(): Form
@@ -595,7 +725,18 @@ PHP;
     protected function formatGridColumns(array $gridColumns, array $fields): string
     {
         if (empty($gridColumns)) {
-            return "->column('id', 'ID')->sortable()\n            ->column('created_at', '创建时间')->sortable()";
+            $lines = [];
+            $lines[] = "->column('id', 'ID')->sortable()";
+            foreach ($fields as $field) {
+                $key = $field['key'] ?? '';
+                if (!$key || in_array($key, ['id', 'created_at', 'updated_at', 'deleted_at'], true)) {
+                    continue;
+                }
+                $label = $field['label'] ?? $key;
+                $lines[] = "->column('{$key}', '{$label}')";
+            }
+            $lines[] = "->column('created_at', '创建时间')->sortable()";
+            return implode("\n            ", $lines);
         }
 
         $lines = [];
@@ -636,8 +777,19 @@ PHP;
                 $line .= $this->formatDisplayType($displayType, $displayOptions);
             }
             // 默认值
-            if (!empty($col['default'])) {
-                $line .= "->default('{$col['default']}')";
+            if (array_key_exists('default', $col) && $col['default'] !== '' && $col['default'] !== null) {
+                $default = trim((string) $col['default']);
+                if (is_numeric($default)) {
+                    $line .= "->default({$default})";
+                } elseif (strtolower($default) === 'null') {
+                    $line .= "->default(null)";
+                } elseif (in_array(strtolower($default), ['true', 'false'], true)) {
+                    $val = strtolower($default) === 'true' ? 'true' : 'false';
+                    $line .= "->default({$val})";
+                } else {
+                    $escaped = str_replace("'", "\\'", $default);
+                    $line .= "->default('{$escaped}')";
+                }
             }
             // 字数限制
             if (!empty($col['limit']) && is_numeric($col['limit'])) {
@@ -683,13 +835,13 @@ PHP;
             'switch', 'toggle' => '->toggle()',
 
             // 图片：image(宽, 高, 圆形)
-            'image' => '->image(' . ($options['width'] ?? 40) . ', ' . ($options['height'] ?? 40) . (isset($options['circle']) && $options['circle'] ? ', true' : '') . ')',
+            'image' => '->image(' . ($options['width'] ?? ($options['w'] ?? 40)) . ', ' . ($options['height'] ?? ($options['h'] ?? 40)) . (isset($options['circle']) && $options['circle'] ? ', true' : (isset($options['is_circle']) && $options['is_circle'] ? ', true' : '')) . ')',
 
             // 标签组：tags('分隔符')
-            'tags' => !empty($options['separator']) ? "->tags('{$options['separator']}')" : '->tags()',
+            'tags' => !empty($options['separator']) ? "->tags('{$options['separator']}')" : (!empty($options['sep']) ? "->tags('{$options['sep']}')" : '->tags()'),
 
             // 进度条：progress(最大值, 显示文字)
-            'progress' => '->progress(' . ($options['max'] ?? 100) . ', ' . (isset($options['showText']) && !$options['showText'] ? 'false' : 'true') . ')',
+            'progress' => '->progress(' . ($options['max'] ?? ($options['maximum'] ?? 100)) . ', ' . (((isset($options['showText']) && !$options['showText']) || (isset($options['show_text']) && !$options['show_text'])) ? 'false' : 'true') . ')',
 
             // 数值条：bar()
             'bar' => '->bar()',
@@ -704,13 +856,13 @@ PHP;
             'dot' => '->dot()',
 
             // 日期：date('格式')
-            'date' => !empty($options['format']) ? "->date('{$options['format']}')" : '->date()',
+            'date' => !empty($options['format']) ? "->date('{$options['format']}')" : (!empty($options['fmt']) ? "->date('{$options['fmt']}')" : '->date()'),
 
             // 日期时间：datetime('格式')
-            'datetime' => !empty($options['format']) ? "->datetime('{$options['format']}')" : '->datetime()',
+            'datetime' => !empty($options['format']) ? "->datetime('{$options['format']}')" : (!empty($options['fmt']) ? "->datetime('{$options['fmt']}')" : '->datetime()'),
 
             // 金额：money('符号', 小数位)
-            'money' => '->money(' . (!empty($options['symbol']) ? "'{$options['symbol']}', " : '') . ($options['decimals'] ?? 2) . ')',
+            'money' => '->money(' . (!empty($options['symbol']) ? "'{$options['symbol']}', " : (!empty($options['currency']) ? "'{$options['currency']}', " : '')) . ($options['decimals'] ?? ($options['decimal'] ?? 2)) . ')',
 
             // 计数：count()
             'count' => '->count()',
@@ -722,7 +874,66 @@ PHP;
     protected function formatGridFilters(array $filters, array $fields): string
     {
         if (empty($filters)) {
-            return '// 无筛选器';
+            $lines = [];
+            foreach ($fields as $field) {
+                $key = $field['key'] ?? '';
+                if (!$key || in_array($key, ['id', 'created_at', 'updated_at', 'deleted_at'], true)) {
+                    continue;
+                }
+
+                $label = $field['label'] ?? $key;
+                $fieldType = $field['type'] ?? '';
+                $dbType = $field['db_type'] ?? '';
+                $type = 'like';
+
+                if (in_array($fieldType, ['date', 'dateTime', 'time'], true) || in_array($dbType, ['date', 'dateTime', 'timestamp'], true)) {
+                    $type = 'between_date';
+                } elseif (in_array($fieldType, ['select', 'radio', 'checkbox', 'switch', 'toggleButtons', 'treeSelect'], true) || $dbType === 'boolean') {
+                    $type = 'select';
+                } elseif (in_array($fieldType, ['number', 'integer', 'decimal', 'float', 'slider', 'rate'], true) || in_array($dbType, ['integer', 'bigInteger', 'decimal', 'float'], true)) {
+                    $type = 'between';
+                } elseif ($fieldType === 'tags') {
+                    $type = 'in';
+                } elseif (in_array($fieldType, ['email', 'url'], true)) {
+                    $type = 'equal';
+                }
+
+                $line = "\$grid->filter('{$key}', '{$label}', '{$type}')";
+
+                if (in_array($type, ['select', 'in'], true)) {
+                    $options = $field['options'] ?? null;
+                    $decoded = null;
+                    if (is_string($options) && trim($options) !== '') {
+                        $decoded = json_decode($options, true);
+                    } elseif (is_array($options)) {
+                        $decoded = $options;
+                    }
+                    if (is_array($decoded) && !empty($decoded)) {
+                        $optionsStr = var_export($decoded, true);
+                        $line .= "->options({$optionsStr})";
+                    } elseif ($dbType === 'boolean') {
+                        $line .= "->options(" . var_export(['1' => '启用', '0' => '禁用'], true) . ")";
+                    }
+                }
+
+                if (in_array($type, ['like'], true)) {
+                    $line .= "->placeholder('请输入{$label}')";
+                } elseif (in_array($type, ['select', 'equal', 'in'], true)) {
+                    $line .= "->placeholder('请选择{$label}')";
+                }
+
+                if (in_array($fieldType, ['checkbox'], true) && in_array($type, ['select', 'equal'], true)) {
+                    $line .= '->multiple()';
+                }
+
+                $lines[] = $line . ';';
+            }
+
+            if (empty($lines)) {
+                return '// 无筛选器';
+            }
+
+            return implode("\n        ", $lines);
         }
 
         $lines = [];
@@ -759,6 +970,20 @@ PHP;
             // 多选模式
             if (!empty($filter['multiple'])) {
                 $line .= '->multiple()';
+            }
+
+            $extra = [];
+            if (!empty($filter['width'])) {
+                $extra['width'] = $filter['width'];
+            }
+            if (!empty($filter['hidden'])) {
+                $extra['hidden'] = true;
+            }
+            if (!empty($filter['collapsed_hidden'])) {
+                $extra['collapsedHidden'] = true;
+            }
+            if (!empty($extra)) {
+                $line .= '->extra(' . var_export($extra, true) . ')';
             }
 
             $lines[] = $line . ';';
@@ -881,10 +1106,9 @@ PHP;
 /**
  * {$modelName} 模型
  *
- * @Author: Author dabashan.cc
+ * @Author: DbsAdmin Generator
  * @Date: {$date}
  * @LastEditTime: {$date}
- * @Copyright: Copyright (c) 2026 by Dabashan.cc, All Rights Reserved.
  * @Source: Dbs-Admin 代码生成器快速生成
  * @Wiki: 更多问题请查看 wiki.dabashan.cc
  */
@@ -916,6 +1140,22 @@ PHP;
             if (!empty($field['nullable'])) {
                 $migrationLine .= '->nullable()';
             }
+            if (array_key_exists('default', $field) && $field['default'] !== '' && $field['default'] !== null) {
+                $default = $field['default'];
+                $defaultStr = trim((string) $default);
+                if (in_array($dbType, ['timestamp', 'dateTime'], true) && in_array(strtolower($defaultStr), ['current_timestamp', 'current_timestamp()', 'now()'], true)) {
+                    $migrationLine .= '->useCurrent()';
+                } elseif (in_array($dbType, ['integer', 'bigInteger', 'decimal', 'float', 'double'], true) && is_numeric($defaultStr)) {
+                    $migrationLine .= "->default({$defaultStr})";
+                } elseif ($dbType === 'boolean' && in_array($defaultStr, ['0', '1'], true)) {
+                    $migrationLine .= "->default({$defaultStr})";
+                } elseif (strtolower($defaultStr) === 'null') {
+                    $migrationLine .= '->default(null)';
+                } else {
+                    $escaped = str_replace("'", "\\'", $defaultStr);
+                    $migrationLine .= "->default('{$escaped}')";
+                }
+            }
             if (!empty($field['comment'])) {
                 $migrationLine .= "->comment('{$field['comment']}')";
             }
@@ -934,6 +1174,9 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('{$tableName}')) {
+            return;
+        }
         Schema::create('{$tableName}', function (Blueprint \$table) {
             {$fieldLines}
         });
@@ -1001,27 +1244,21 @@ PHP;
 
     protected function generateVueCode(string $parent, string $kebabName, string $name, string $type = 'core', ?string $pluginKebab = null): string
     {
-        // 插件模式下使用 Arco Design 组件，生成到插件视图目录
         if ($type === 'plugin' && $pluginKebab) {
-            $stubPath = __DIR__ . '/../../stubs/vue-plugin.stub';
-            $template = file_get_contents($stubPath);
-            if ($template === false) {
-                throw new \Exception('无法读取 vue-plugin.stub 模板文件');
-            }
+            return <<<VUE
+<template>
+  <DynamicCrud
+    api-prefix="/plugin/{$pluginKebab}/admin/{$kebabName}"
+    :breadcrumb="['menu.plugin', 'menu.plugin.{$pluginKebab}', 'menu.plugin.{$pluginKebab}.{$kebabName}']"
+    add-title="新增{$name}"
+    edit-title="编辑{$name}"
+  />
+</template>
 
-            $now = date('Y-m-d H:i:s');
-            $itemType = $name . 'Item';
-
-            $replacements = [
-                '{{now}}' => $now,
-                '{{name}}' => $name,
-                '{{itemType}}' => $itemType,
-                '{{pluginKebab}}' => $pluginKebab,
-                '{{parent}}' => $parent,
-                '{{kebabName}}' => $kebabName,
-            ];
-
-            return str_replace(array_keys($replacements), array_values($replacements), $template);
+<script lang="ts" setup>
+  import DynamicCrud from '@/components/dynamic/DynamicCrud.vue';
+</script>
+VUE;
         }
 
         // 核心模块
@@ -1101,15 +1338,15 @@ TS;
      */
     protected function generatePluginJson(string $plugin, string $pluginTitle, string $name, string $kebabName, string $icon): string
     {
-        $pluginStudly = Str::studly($plugin);
-        $pluginKebab = Str::kebab($plugin);
+        $pluginSnake = Str::snake($plugin);
+        $pluginStudly = Str::studly($pluginSnake);
         $title = $pluginTitle ?: "{$pluginStudly} 插件";
         $json = [
-            'name' => $pluginStudly,
+            'name' => $pluginSnake,
             'title' => $title,
             'description' => "{$name} 管理插件",
             'version' => '1.0.0',
-            'author' => 'Code Generator',
+            'author' => 'DbsAdmin Generator',
             'enabled' => true,
             'icon' => $icon,
             'type' => 'local',
@@ -1126,14 +1363,15 @@ TS;
                     'title' => "{$name}管理",
                     'icon' => $icon,
                     'uri' => "admin/{$kebabName}",
+                    'component' => "{$pluginSnake}/{$kebabName}",
                 ],
             ],
             'permissions' => [
                 [
-                    'slug' => "{$pluginKebab}.{$kebabName}",
+                    'slug' => "{$pluginSnake}.{$kebabName}",
                     'name' => "{$name}管理",
                     'http_method' => [],
-                    'http_path' => "/plugin/{$pluginKebab}/admin/{$kebabName}/*",
+                    'http_path' => "/plugin/{$pluginSnake}/admin/{$kebabName}/*",
                 ],
             ],
         ];
@@ -1146,8 +1384,8 @@ TS;
      */
     protected function generatePluginServiceProvider(string $plugin, string $name): string
     {
-        $pluginStudly = Str::studly($plugin);
-        $pluginKebab = Str::kebab($plugin);
+        $pluginSnake = Str::snake($plugin);
+        $pluginStudly = Str::studly($pluginSnake);
         $date = $this->formatDate();
 
         return <<<PHP
@@ -1155,6 +1393,8 @@ TS;
 
 /**
  * 插件服务提供者
+ *
+ * @Author: DbsAdmin Generator
  * @Date: {$date}
  * @LastEditTime: {$date}
  * @Source: Dbs-Admin 代码生成器快速生成
@@ -1167,7 +1407,7 @@ use Illuminate\\Support\\ServiceProvider;
 
 class PluginServiceProvider extends ServiceProvider
 {
-    protected string \$pluginName = '{$pluginKebab}';
+    protected string \$pluginName = '{$pluginSnake}';
 
     public function register(): void
     {
@@ -1203,8 +1443,8 @@ PHP;
      */
     protected function generatePluginAdminRoutes(string $plugin, string $name, string $kebabName): string
     {
-        $pluginStudly = Str::studly($plugin);
-        $pluginKebab = Str::kebab($plugin);
+        $pluginSnake = Str::snake($plugin);
+        $pluginStudly = Str::studly($pluginSnake);
         $controllerNamespace = "Plugins\\{$pluginStudly}\\Admin\\Controllers\\{$name}Controller";
         $date = $this->formatDate();
 
@@ -1213,6 +1453,8 @@ PHP;
 
 /**
  * 插件后台路由配置
+ *
+ * @Author: DbsAdmin Generator
  * @Date: {$date}
  * @LastEditTime: {$date}
  * @Source: Dbs-Admin 代码生成器快速生成
@@ -1226,14 +1468,21 @@ use {$controllerNamespace};
 |--------------------------------------------------------------------------
 | 插件后台路由（Admin 端）
 |--------------------------------------------------------------------------
-| 前缀: /plugin/{$pluginKebab}/admin
+| 前缀: /plugin/{$pluginSnake}/admin
 | 中间件: api, auth:admin
 |
 */
 
-Route::prefix('plugin/{$pluginKebab}/admin')
+Route::prefix('plugin/{$pluginSnake}/admin')
     ->middleware(['api', 'auth:admin'])
     ->group(function () {
+        Route::get('{$kebabName}/form-schema', [{$name}Controller::class, 'formSchema']);
+        Route::get('{$kebabName}/grid-meta', [{$name}Controller::class, 'gridMeta']);
+        Route::post('{$kebabName}/batch-update', [{$name}Controller::class, 'batchUpdate']);
+        Route::post('{$kebabName}/batch-destroy', [{$name}Controller::class, 'batchDestroy']);
+        Route::post('{$kebabName}/{id}/toggle', [{$name}Controller::class, 'toggle']);
+        Route::post('{$kebabName}/{id}/replicate', [{$name}Controller::class, 'replicate']);
+        Route::post('{$kebabName}/{id}/restore', [{$name}Controller::class, 'restore']);
         Route::apiResource('{$kebabName}', {$name}Controller::class);
     });
 PHP;
@@ -1244,8 +1493,8 @@ PHP;
      */
     protected function generatePluginHttpRoutes(string $plugin, string $name, string $kebabName): string
     {
-        $pluginStudly = Str::studly($plugin);
-        $pluginKebab = Str::kebab($plugin);
+        $pluginSnake = Str::snake($plugin);
+        $pluginStudly = Str::studly($pluginSnake);
         $controllerNamespace = "Plugins\\{$pluginStudly}\\Http\\Controllers\\{$name}Controller";
         $date = $this->formatDate();
 
@@ -1254,6 +1503,8 @@ PHP;
 
 /**
  * 插件业务端路由配置
+ *
+ * @Author: DbsAdmin Generator
  * @Date: {$date}
  * @LastEditTime: {$date}
  * @Source: Dbs-Admin 代码生成器快速生成
@@ -1267,13 +1518,13 @@ use {$controllerNamespace};
 |--------------------------------------------------------------------------
 | 插件业务路由（Http 端）
 |--------------------------------------------------------------------------
-| 前缀: /plugin/{$pluginKebab}/api
+| 前缀: /plugin/{$pluginSnake}/api
 | 中间件: api
 | 业务端独立，无强制约束
 |
 */
 
-Route::prefix('plugin/{$pluginKebab}/api')
+Route::prefix('plugin/{$pluginSnake}/api')
     ->middleware('api')
     ->group(function () {
         // 公开接口（限速 60 次/分钟）
@@ -1298,6 +1549,8 @@ PHP;
 
 /**
  * {$name} 业务端控制器
+ *
+ * @Author: DbsAdmin Generator
  * @Date: {$date}
  * @LastEditTime: {$date}
  * @Source: Dbs-Admin 代码生成器快速生成
@@ -1421,10 +1674,13 @@ PHP;
      */
     protected function generateBusinessVueCode(string $plugin, string $kebabName, string $name): string
     {
-        $pluginKebab = Str::kebab($plugin);
+        $pluginKebab = Str::snake($plugin);
         $date = $this->formatDate();
         return <<<VUE
 <!--
+ * {$name} 业务端页面
+ *
+ * @Author: DbsAdmin Generator
  * @Date: {$date}
  * @LastEditTime: {$date}
  * @Source: Dbs-Admin 代码生成器快速生成
@@ -1594,7 +1850,7 @@ PHP;
 
 <style scoped lang="less">
   .container {
-    padding: 0 20px 20px 20px;
+    padding: 10px;
   }
 </style>
 VUE;
@@ -1669,7 +1925,7 @@ import { AppRouteRecordRaw } from '@/router/routes/types';
 const {$name}: AppRouteRecordRaw = {
   path: '/plugin/{$pluginKebab}',
   name: '{$pluginStudly}',
-  component: () => import('@plugins/{$pluginKebab}/views/index.vue'),
+  component: () => import('@plugins/{$pluginStudly}/resources/views/index.vue'),
   redirect: '/plugin/{$pluginKebab}/{$kebabName}',
   meta: {
     locale: 'menu.plugin.{$pluginKebab}',
@@ -1682,7 +1938,7 @@ const {$name}: AppRouteRecordRaw = {
     {
       path: '{$kebabName}',
       name: '{$name}',
-      component: () => import('@plugins/{$pluginKebab}/views/{$kebabName}/index.vue'),
+      component: () => import('@plugins/{$pluginStudly}/resources/views/{$kebabName}/index.vue'),
       meta: {
         locale: 'menu.plugin.{$pluginKebab}.{$kebabName}',
         requiresAuth: true,
@@ -1697,12 +1953,152 @@ export default {$name};
 TS;
     }
 
+    protected function generatePluginRoutesIndex(
+        string $pluginStudly,
+        string $pluginSnake,
+        ?string $extraKebabName = null,
+        array $virtualFiles = []
+    ): string
+    {
+        $routes = $this->collectPluginViewRoutes($pluginStudly, $extraKebabName, $virtualFiles);
+        $childrenCode = implode(",\n", array_map(function ($item) use ($pluginStudly, $pluginSnake) {
+            $kebab = $item['kebab'];
+            $studly = $item['studly'];
+            if ($kebab === 'index') {
+                return <<<TS
+    {
+      path: 'index',
+      name: 'Plugin{$pluginStudly}Index',
+      component: () => import('@plugins/{$pluginStudly}/resources/views/index.vue'),
+      meta: {
+        locale: 'menu.plugin.{$pluginSnake}',
+        requiresAuth: true,
+        roles: ['*'],
+        hideInMenu: true,
+      },
+    }
+TS;
+            }
+
+            return <<<TS
+    {
+      path: '{$kebab}',
+      name: 'Plugin{$pluginStudly}{$studly}',
+      component: () => import('@plugins/{$pluginStudly}/resources/views/{$kebab}/index.vue'),
+      meta: {
+        locale: 'menu.plugin.{$pluginSnake}.{$kebab}',
+        requiresAuth: true,
+        roles: ['*'],
+        hideInMenu: true,
+      },
+    }
+TS;
+        }, $routes));
+
+        $redirect = '/plugin/' . $pluginSnake . '/index';
+        foreach ($routes as $item) {
+            if ($item['kebab'] !== 'index') {
+                $redirect = '/plugin/' . $pluginSnake . '/' . $item['kebab'];
+                break;
+            }
+        }
+
+        return <<<TS
+import { DEFAULT_LAYOUT } from '@/router/routes/base';
+import { AppRouteRecordRaw } from '@/router/routes/types';
+
+const PluginRoutes: AppRouteRecordRaw = {
+  path: '/plugin/{$pluginSnake}',
+  name: 'Plugin{$pluginStudly}',
+  component: DEFAULT_LAYOUT,
+  redirect: '{$redirect}',
+  meta: {
+    locale: 'menu.plugin.{$pluginSnake}',
+    icon: 'icon-apps',
+    requiresAuth: true,
+    order: 80,
+    hideChildrenInMenu: true,
+  },
+  children: [
+{$childrenCode}
+  ],
+};
+
+export default PluginRoutes;
+TS;
+    }
+
+    protected function collectPluginViewRoutes(string $pluginStudly, ?string $extraKebabName = null, array $virtualFiles = []): array
+    {
+        $viewsDir = base_path("plugins/{$pluginStudly}/resources/views");
+        $routes = [];
+
+        if (is_dir($viewsDir) && file_exists($viewsDir . '/index.vue')) {
+            $routes[] = ['kebab' => 'index', 'studly' => 'Index'];
+        }
+
+        $virtualPrefix = "plugins/{$pluginStudly}/resources/views/";
+        foreach ($virtualFiles as $path => $content) {
+            if (!is_string($path)) continue;
+            if ($path === $virtualPrefix . 'index.vue') {
+                $routes[] = ['kebab' => 'index', 'studly' => 'Index'];
+                continue;
+            }
+            if (!str_starts_with($path, $virtualPrefix)) continue;
+            if (!str_ends_with($path, '/index.vue')) continue;
+            $sub = substr($path, strlen($virtualPrefix));
+            $kebab = substr($sub, 0, -strlen('/index.vue'));
+            if ($kebab === '' || $kebab === 'locale') continue;
+            $routes[] = ['kebab' => $kebab, 'studly' => Str::studly($kebab)];
+        }
+
+        if (is_dir($viewsDir)) {
+            foreach (glob($viewsDir . '/*', GLOB_ONLYDIR) ?: [] as $dir) {
+                $kebab = basename($dir);
+                if ($kebab === 'locale') continue;
+                if (!file_exists($dir . '/index.vue')) continue;
+                $routes[] = ['kebab' => $kebab, 'studly' => Str::studly($kebab)];
+            }
+        }
+
+        if ($extraKebabName) {
+            $exists = false;
+            foreach ($routes as $r) {
+                if ($r['kebab'] === $extraKebabName) {
+                    $exists = true;
+                    break;
+                }
+            }
+            if (!$exists) {
+                $routes[] = ['kebab' => $extraKebabName, 'studly' => Str::studly($extraKebabName)];
+            }
+        }
+
+        usort($routes, function ($a, $b) {
+            if ($a['kebab'] === 'index') return -1;
+            if ($b['kebab'] === 'index') return 1;
+            return strcmp($a['kebab'], $b['kebab']);
+        });
+
+        $unique = [];
+        $seen = [];
+        foreach ($routes as $r) {
+            $k = $r['kebab'] ?? '';
+            if ($k === '' || isset($seen[$k])) continue;
+            $seen[$k] = true;
+            $unique[] = $r;
+        }
+        return $unique;
+    }
+
     protected function getGeneratedFiles(string $name, string $kebabName, string $parent, string $type, ?string $plugin, string $table, ?string $pluginKebab = null): array
     {
         $files = [];
 
         if ($type === 'plugin' && $plugin) {
-            $pluginStudly = Str::studly($plugin);
+            $pluginStudly = Str::studly(Str::snake($plugin));
+            $pluginJsonPath = base_path("plugins/{$pluginStudly}/plugin.json");
+            $isNewPlugin = !file_exists($pluginJsonPath);
 
             // 插件模式：Admin 控制器和 Model
             $files[] = "plugins/{$pluginStudly}/Admin/Controllers/{$name}Controller.php";
@@ -1720,15 +2116,17 @@ TS;
             $files[] = "plugins/{$pluginStudly}/resources/views/{$kebabName}/index.vue";
 
             // 插件资源：路由文件
-            $files[] = "plugins/{$pluginStudly}/resources/routes/{$kebabName}.ts";
+            $files[] = "plugins/{$pluginStudly}/resources/routes/index.ts";
 
             // Http 路由和控制器
             $files[] = "plugins/{$pluginStudly}/Http/routes.php";
             $files[] = "plugins/{$pluginStudly}/Http/Controllers/{$name}Controller.php";
 
-            // 新插件额外文件（plugin.json 和 ServiceProvider）
+            // plugin.json（新增资源会追加到同一个文件）
             $files[] = "plugins/{$pluginStudly}/plugin.json";
-            $files[] = "plugins/{$pluginStudly}/PluginServiceProvider.php";
+            if ($isNewPlugin) {
+                $files[] = "plugins/{$pluginStudly}/Providers/PluginServiceProvider.php";
+            }
         } else {
             // 核心模块
             $files[] = $this->getControllerPath($name, $type, $plugin);
@@ -1747,7 +2145,7 @@ TS;
     protected function getControllerPath(string $name, string $type, ?string $plugin): string
     {
         return $type === 'plugin'
-            ? "plugins/" . Str::studly($plugin) . "/Admin/Controllers/{$name}Controller.php"
+            ? "plugins/" . Str::studly(Str::snake($plugin)) . "/Admin/Controllers/{$name}Controller.php"
             : "app/Admin/Controllers/{$name}Controller.php";
     }
 
@@ -1755,21 +2153,21 @@ TS;
     {
         $modelName = $type === 'plugin' ? $name : "Admin{$name}";
         return $type === 'plugin'
-            ? "plugins/" . Str::studly($plugin) . "/Models/{$modelName}.php"
+            ? "plugins/" . Str::studly(Str::snake($plugin)) . "/Models/{$modelName}.php"
             : "app/Admin/Models/{$modelName}.php";
     }
 
     protected function getVuePath(string $parent, string $kebabName, string $type, ?string $plugin): string
     {
         return $type === 'plugin'
-            ? "plugins/" . Str::studly($plugin) . "/resources/views/{$kebabName}/index.vue"
+            ? "plugins/" . Str::studly(Str::snake($plugin)) . "/resources/views/{$kebabName}/index.vue"
             : "resource/views/{$parent}/{$kebabName}/index.vue";
     }
 
     protected function getRouterPath(string $parent, string $kebabName, string $type, ?string $pluginKebab = null): string
     {
         return $type === 'plugin'
-            ? "plugins/" . Str::studly($pluginKebab) . "/resources/routes/{$kebabName}.ts"
+            ? "plugins/" . Str::studly($pluginKebab) . "/resources/routes/index.ts"
             : "resource/routes/{$parent}-{$kebabName}.ts";
     }
 
@@ -1784,6 +2182,25 @@ TS;
         $basePath = base_path();
         $writtenFiles = [];
         $isPlugin = $config['type'] === 'plugin';
+        $force = $config['force'] ?? false;
+        $pluginInfo = null;
+        if ($isPlugin && !empty($config['plugin'])) {
+            $pluginInfo = $this->pluginBaseInfo($config['plugin']);
+        }
+        $allowOverwritePaths = [];
+        if ($pluginInfo) {
+            $allowOverwritePaths = [
+                $pluginInfo['json_path'],
+                $pluginInfo['dir'] . '/Admin/routes.php',
+                $pluginInfo['dir'] . '/Http/routes.php',
+                $pluginInfo['dir'] . '/resources/routes/index.ts',
+            ];
+        }
+
+        $resourceStudly = Str::studly($config['name'] ?? '');
+        $resourceKebab = Str::kebab($config['name'] ?? '');
+        $pluginSnake = $pluginInfo['snake'] ?? null;
+        $pluginStudly = $pluginInfo['studly'] ?? null;
 
         foreach ($preview['preview'] as $fileInfo) {
             $path = $fileInfo['path'];
@@ -1793,19 +2210,84 @@ TS;
             // 确保目录存在
             $dir = dirname($fullPath);
             if (!is_dir($dir)) {
-                mkdir($dir, 0755, true);
+                $ok = @mkdir($dir, 0755, true);
+                if (!$ok && !is_dir($dir)) {
+                    throw new \Exception("无法创建目录 {$dir}");
+                }
             }
 
             // 检查文件是否已存在
-            $force = $config['force'] ?? false;
             if (file_exists($fullPath) && !$force) {
+                if ($pluginInfo) {
+                    if (in_array($fullPath, $allowOverwritePaths, true)) {
+                        // allow overwrite (merge content)
+                    } else {
+                        throw new \Exception("文件 {$path} 已存在，请使用 force 参数覆盖");
+                    }
+                } else {
                 throw new \Exception("文件 {$path} 已存在，请使用 force 参数覆盖");
+                }
             }
 
-            // 写入文件
-            $result = file_put_contents($fullPath, $content);
-            if ($result === false) {
-                throw new \Exception("无法写入文件 {$path}");
+            if ($pluginInfo && in_array($fullPath, $allowOverwritePaths, true)) {
+                $fp = fopen($fullPath, 'c+');
+                if ($fp === false) {
+                    throw new \Exception("无法打开文件 {$path}");
+                }
+                if (!flock($fp, LOCK_EX)) {
+                    fclose($fp);
+                    throw new \Exception("无法锁定文件 {$path}");
+                }
+                rewind($fp);
+                $existing = stream_get_contents($fp);
+                if ($existing === false) {
+                    $existing = '';
+                }
+
+                if ($pluginSnake && $pluginStudly) {
+                    if ($fullPath === $pluginInfo['json_path']) {
+                        $content = $this->mergePluginJsonForResource(
+                            $config['plugin'],
+                            $config['plugin_title'] ?? null,
+                            $resourceStudly,
+                            $resourceKebab,
+                            $config['icon'] ?? 'icon-apps',
+                            $existing
+                        );
+                    } elseif ($fullPath === $pluginInfo['dir'] . '/Admin/routes.php') {
+                        $content = $this->mergePluginAdminRoutesForResource(
+                            $config['plugin'],
+                            $resourceStudly,
+                            $resourceKebab,
+                            $existing
+                        );
+                    } elseif ($fullPath === $pluginInfo['dir'] . '/Http/routes.php') {
+                        $content = $this->mergePluginHttpRoutesForResource(
+                            $config['plugin'],
+                            $resourceStudly,
+                            $resourceKebab,
+                            $existing
+                        );
+                    } elseif ($fullPath === $pluginInfo['dir'] . '/resources/routes/index.ts') {
+                        $content = $this->generatePluginRoutesIndex($pluginStudly, $pluginSnake, $resourceKebab);
+                    }
+                }
+
+                ftruncate($fp, 0);
+                rewind($fp);
+                $result = fwrite($fp, $content);
+                fflush($fp);
+                flock($fp, LOCK_UN);
+                fclose($fp);
+
+                if ($result === false) {
+                    throw new \Exception("无法写入文件 {$path}");
+                }
+            } else {
+                $result = file_put_contents($fullPath, $content);
+                if ($result === false) {
+                    throw new \Exception("无法写入文件 {$path}");
+                }
             }
 
             $writtenFiles[] = $path;
@@ -1972,6 +2454,398 @@ TS;
             'files' => $deletedFiles,
             'message' => '代码已删除',
         ];
+    }
+
+    protected function mergePluginJsonForResource(
+        string $plugin,
+        ?string $pluginTitle,
+        string $name,
+        string $kebabName,
+        string $icon,
+        ?string $existingRaw = null
+    ): string
+    {
+        $info = $this->pluginBaseInfo($plugin);
+        $fallbackBaseJson = function () use ($info, $pluginTitle, $icon): array {
+            return [
+                'name' => $info['snake'],
+                'title' => $pluginTitle ?? $info['studly'],
+                'description' => '',
+                'version' => '1.0.0',
+                'author' => 'DbsAdmin Generator',
+                'enabled' => true,
+                'icon' => $icon ?: 'icon-apps',
+                'type' => 'local',
+                'show_api' => true,
+                'requires' => [],
+                'providers' => [
+                    "Plugins\\{$info['studly']}\\Providers\\PluginServiceProvider",
+                ],
+                'admin_controllers' => [],
+                'menus' => [],
+                'permissions' => [],
+            ];
+        };
+
+        if (is_string($existingRaw) && trim($existingRaw) !== '') {
+            $json = json_decode($existingRaw, true);
+            if (is_array($json)) {
+                return json_encode(
+                    $this->mergePluginJsonArray($info, $json, $pluginTitle, $name, $kebabName, $icon),
+                    JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE
+                );
+            }
+            return json_encode(
+                $this->mergePluginJsonArray($info, $fallbackBaseJson(), $pluginTitle, $name, $kebabName, $icon),
+                JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE
+            );
+        }
+
+        if (!file_exists($info['json_path'])) {
+            if (class_exists('\App\Admin\Models\Plugin')) {
+                try {
+                    $record = \App\Admin\Models\Plugin::where('name', $info['snake'])
+                        ->orWhere('name', $info['studly'])
+                        ->first();
+                    if ($record) {
+                        $base = $record->toArray();
+                        $json = [
+                            'name' => $base['name'] ?? $info['snake'],
+                            'title' => $base['title'] ?? ($pluginTitle ?? $info['studly']),
+                            'description' => $base['description'] ?? '',
+                            'version' => $base['version'] ?? '1.0.0',
+                            'author' => $base['author'] ?? '',
+                            'enabled' => (bool) ($base['enabled'] ?? true),
+                            'icon' => $base['icon'] ?? 'icon-apps',
+                            'type' => $base['type'] ?? 'local',
+                            'show_api' => (bool) ($base['show_api'] ?? true),
+                            'requires' => [],
+                            'providers' => $base['providers'] ?? [
+                                "Plugins\\{$info['studly']}\\Providers\\PluginServiceProvider",
+                            ],
+                            'admin_controllers' => [],
+                            'menus' => $base['menus'] ?? [],
+                            'permissions' => $base['permissions'] ?? [],
+                        ];
+                        return $this->mergePluginJsonArray($info, $json, $pluginTitle, $name, $kebabName, $icon);
+                    }
+                } catch (\Throwable) {
+                    // ignore
+                }
+            }
+
+            return $this->generatePluginJson($plugin, $pluginTitle ?? '', $name, $kebabName, $icon);
+        }
+
+        $raw = file_get_contents($info['json_path']);
+        if ($raw === false) {
+            throw new \Exception('无法读取 plugin.json');
+        }
+        if (trim($raw) === '') {
+            return json_encode(
+                $this->mergePluginJsonArray($info, $fallbackBaseJson(), $pluginTitle, $name, $kebabName, $icon),
+                JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE
+            );
+        }
+
+        $json = json_decode($raw, true);
+        if (!is_array($json)) {
+            return json_encode(
+                $this->mergePluginJsonArray($info, $fallbackBaseJson(), $pluginTitle, $name, $kebabName, $icon),
+                JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE
+            );
+        }
+
+        return json_encode(
+            $this->mergePluginJsonArray($info, $json, $pluginTitle, $name, $kebabName, $icon),
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE
+        );
+    }
+
+    protected function mergePluginJsonArray(
+        array $info,
+        array $json,
+        ?string $pluginTitle,
+        string $name,
+        string $kebabName,
+        string $icon
+    ): array {
+        $currentName = $json['name'] ?? $info['snake'];
+        $pluginSnake = Str::snake($currentName);
+        $pluginStudly = Str::studly($pluginSnake);
+
+        $json['name'] = $pluginSnake;
+
+        if (!isset($json['admin_controllers']) || !is_array($json['admin_controllers'])) {
+            $json['admin_controllers'] = [];
+        }
+        if (!isset($json['menus']) || !is_array($json['menus'])) {
+            $json['menus'] = [];
+        }
+        if (!isset($json['permissions']) || !is_array($json['permissions'])) {
+            $json['permissions'] = [];
+        }
+        if (!isset($json['providers']) || !is_array($json['providers']) || empty($json['providers'])) {
+            $json['providers'] = [
+                "Plugins\\{$pluginStudly}\\Providers\\PluginServiceProvider",
+            ];
+        }
+
+        $controllerClass = "Plugins\\{$pluginStudly}\\Admin\\Controllers\\{$name}Controller";
+        if (!in_array($controllerClass, $json['admin_controllers'], true)) {
+            $json['admin_controllers'][] = $controllerClass;
+        }
+
+        $this->syncPluginJsonFromFilesystem($info, $json, $icon);
+
+        $menuUri = "admin/{$kebabName}";
+        $menuExists = false;
+        foreach ($json['menus'] as $m) {
+            if (is_array($m) && ($m['uri'] ?? null) === $menuUri) {
+                $menuExists = true;
+                break;
+            }
+        }
+        if (!$menuExists) {
+            $json['menus'][] = [
+                'title' => "{$name}管理",
+                'icon' => $icon,
+                'uri' => $menuUri,
+                'component' => "{$pluginSnake}/{$kebabName}",
+            ];
+        }
+
+        $permissionSlug = "{$pluginSnake}.{$kebabName}";
+        $permExists = false;
+        foreach ($json['permissions'] as $p) {
+            if (is_array($p) && ($p['slug'] ?? null) === $permissionSlug) {
+                $permExists = true;
+                break;
+            }
+        }
+        if (!$permExists) {
+            $json['permissions'][] = [
+                'slug' => $permissionSlug,
+                'name' => "{$name}管理",
+                'http_method' => [],
+                'http_path' => "/plugin/{$pluginSnake}/admin/{$kebabName}/*",
+            ];
+        }
+
+        if (!empty($pluginTitle) && empty($json['title'])) {
+            $json['title'] = $pluginTitle;
+        }
+
+        return $json;
+    }
+
+    protected function syncPluginJsonFromFilesystem(array $info, array &$json, string $defaultIcon): void
+    {
+        $controllersDir = $info['dir'] . '/Admin/Controllers';
+        if (!is_dir($controllersDir)) return;
+
+        $pluginSnake = Str::snake((string) ($json['name'] ?? $info['snake']));
+        $pluginStudly = Str::studly($pluginSnake);
+
+        foreach (glob($controllersDir . '/*Controller.php') ?: [] as $file) {
+            $base = basename($file, '.php');
+            if (!str_ends_with($base, 'Controller')) continue;
+            $resource = substr($base, 0, -10);
+            if ($resource === '') continue;
+
+            $controllerClass = "Plugins\\{$pluginStudly}\\Admin\\Controllers\\{$resource}Controller";
+            if (!in_array($controllerClass, $json['admin_controllers'], true)) {
+                $json['admin_controllers'][] = $controllerClass;
+            }
+
+            $kebab = Str::kebab($resource);
+            $menuUri = "admin/{$kebab}";
+            $menuExists = false;
+            foreach ($json['menus'] as $m) {
+                if (is_array($m) && ($m['uri'] ?? null) === $menuUri) {
+                    $menuExists = true;
+                    break;
+                }
+            }
+            if (!$menuExists) {
+                $json['menus'][] = [
+                    'title' => "{$resource}管理",
+                    'icon' => $defaultIcon,
+                    'uri' => $menuUri,
+                    'component' => "{$pluginSnake}/{$kebab}",
+                ];
+            }
+
+            $slug = "{$pluginSnake}.{$kebab}";
+            $permExists = false;
+            foreach ($json['permissions'] as $p) {
+                if (is_array($p) && ($p['slug'] ?? null) === $slug) {
+                    $permExists = true;
+                    break;
+                }
+            }
+            if (!$permExists) {
+                $json['permissions'][] = [
+                    'slug' => $slug,
+                    'name' => "{$resource}管理",
+                    'http_method' => [],
+                    'http_path' => "/plugin/{$pluginSnake}/admin/{$kebab}/*",
+                ];
+            }
+        }
+    }
+
+    protected function mergePluginAdminRoutesForResource(
+        string $plugin,
+        string $name,
+        string $kebabName,
+        ?string $existingContent = null,
+        bool $syncFromFilesystem = true
+    ): string
+    {
+        $info = $this->pluginBaseInfo($plugin);
+        $path = $info['dir'] . '/Admin/routes.php';
+        if ($existingContent === null && !file_exists($path)) {
+            return $this->generatePluginAdminRoutes($plugin, $name, $kebabName);
+        }
+
+        $content = $existingContent ?? file_get_contents($path);
+        if ($content === false) {
+            return $this->generatePluginAdminRoutes($plugin, $name, $kebabName);
+        }
+        if (trim($content) === '') {
+            $content = $this->generatePluginAdminRoutes($plugin, $name, $kebabName);
+            $syncFromFilesystem = true;
+        }
+
+        $pluginStudly = $info['studly'];
+        $controllerNamespace = "Plugins\\{$pluginStudly}\\Admin\\Controllers\\{$name}Controller";
+        $useLine = "use {$controllerNamespace};";
+        if (strpos($content, $useLine) === false) {
+            if (preg_match_all('/^use\s+[^;]+;\s*$/m', $content, $m, PREG_OFFSET_CAPTURE) && !empty($m[0])) {
+                $last = end($m[0]);
+                $insertPos = $last[1] + strlen($last[0]);
+                $content = substr($content, 0, $insertPos) . "\n" . $useLine . substr($content, $insertPos);
+            } else {
+                $content = preg_replace('/^<\?php\s*/', "<?php\n\n{$useLine}\n", $content) ?? $content;
+            }
+        }
+
+        $routeLines = [
+            "        Route::get('{$kebabName}/form-schema', [{$name}Controller::class, 'formSchema']);",
+            "        Route::get('{$kebabName}/grid-meta', [{$name}Controller::class, 'gridMeta']);",
+            "        Route::post('{$kebabName}/batch-update', [{$name}Controller::class, 'batchUpdate']);",
+            "        Route::post('{$kebabName}/batch-destroy', [{$name}Controller::class, 'batchDestroy']);",
+            "        Route::post('{$kebabName}/{id}/toggle', [{$name}Controller::class, 'toggle']);",
+            "        Route::post('{$kebabName}/{id}/replicate', [{$name}Controller::class, 'replicate']);",
+            "        Route::post('{$kebabName}/{id}/restore', [{$name}Controller::class, 'restore']);",
+            "        Route::apiResource('{$kebabName}', {$name}Controller::class);",
+        ];
+
+        $apiResourceLine = "        Route::apiResource('{$kebabName}', {$name}Controller::class);";
+        $anchorPos = strpos($content, $apiResourceLine);
+        if ($anchorPos === false) {
+            $anchorPos = strrpos($content, '    });');
+        }
+
+        foreach ($routeLines as $line) {
+            if (strpos($content, $line) !== false) {
+                continue;
+            }
+
+            if ($anchorPos !== false) {
+                $content = substr($content, 0, $anchorPos) . $line . "\n" . substr($content, $anchorPos);
+                $anchorPos += strlen($line) + 1;
+            } else {
+                $content .= "\n{$line}\n";
+            }
+        }
+
+        if ($syncFromFilesystem) {
+            $controllersDir = $info['dir'] . '/Admin/Controllers';
+            foreach (glob($controllersDir . '/*Controller.php') ?: [] as $file) {
+                $base = basename($file, 'Controller.php');
+                if ($base === '' || $base === $name) continue;
+                $kebab = Str::kebab($base);
+                $apiResourceLine2 = "        Route::apiResource('{$kebab}', {$base}Controller::class);";
+                if (strpos($content, $apiResourceLine2) !== false) continue;
+                $content = $this->mergePluginAdminRoutesForResource($plugin, $base, $kebab, $content, false);
+            }
+        }
+
+        return $content;
+    }
+
+    protected function mergePluginHttpRoutesForResource(
+        string $plugin,
+        string $name,
+        string $kebabName,
+        ?string $existingContent = null,
+        bool $syncFromFilesystem = true
+    ): string
+    {
+        $info = $this->pluginBaseInfo($plugin);
+        $path = $info['dir'] . '/Http/routes.php';
+        if ($existingContent === null && !file_exists($path)) {
+            return $this->generatePluginHttpRoutes($plugin, $name, $kebabName);
+        }
+
+        $content = $existingContent ?? file_get_contents($path);
+        if ($content === false) {
+            return $this->generatePluginHttpRoutes($plugin, $name, $kebabName);
+        }
+        if (trim($content) === '') {
+            $content = $this->generatePluginHttpRoutes($plugin, $name, $kebabName);
+            $syncFromFilesystem = true;
+        }
+
+        $pluginStudly = $info['studly'];
+        $controllerNamespace = "Plugins\\{$pluginStudly}\\Http\\Controllers\\{$name}Controller";
+        $useLine = "use {$controllerNamespace};";
+        if (strpos($content, $useLine) === false) {
+            if (preg_match_all('/^use\s+[^;]+;\s*$/m', $content, $m, PREG_OFFSET_CAPTURE) && !empty($m[0])) {
+                $last = end($m[0]);
+                $insertPos = $last[1] + strlen($last[0]);
+                $content = substr($content, 0, $insertPos) . "\n" . $useLine . substr($content, $insertPos);
+            } else {
+                $content = preg_replace('/^<\?php\s*/', "<?php\n\n{$useLine}\n", $content) ?? $content;
+            }
+        }
+
+        $routeLine = "            Route::apiResource('{$kebabName}', {$name}Controller::class);";
+        if (strpos($content, $routeLine) === false) {
+            $anchor = "Route::middleware('throttle:60,1')->group(function () {";
+            $start = strpos($content, $anchor);
+            if ($start !== false) {
+                $end = strpos($content, "\n        });", $start);
+                if ($end !== false) {
+                    $content = substr($content, 0, $end) . "\n" . $routeLine . substr($content, $end);
+                } else {
+                    $content .= "\n{$routeLine}\n";
+                }
+            } else {
+                $pos = strrpos($content, '    });');
+                if ($pos !== false) {
+                    $content = substr($content, 0, $pos) . $routeLine . "\n" . substr($content, $pos);
+                } else {
+                    $content .= "\n{$routeLine}\n";
+                }
+            }
+        }
+
+        if ($syncFromFilesystem) {
+            $controllersDir = $info['dir'] . '/Http/Controllers';
+            foreach (glob($controllersDir . '/*Controller.php') ?: [] as $file) {
+                $base = basename($file, 'Controller.php');
+                if ($base === '' || $base === $name) continue;
+                $kebab = Str::kebab($base);
+                $routeLine2 = "            Route::apiResource('{$kebab}', {$base}Controller::class);";
+                if (strpos($content, $routeLine2) !== false) continue;
+                $content = $this->mergePluginHttpRoutesForResource($plugin, $base, $kebab, $content, false);
+            }
+        }
+
+        return $content;
     }
 
     /**

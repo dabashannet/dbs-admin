@@ -1,19 +1,10 @@
-<!--
-  DynamicCrud.vue — 动态 CRUD 主页面
-  组合 DynamicTable + DynamicForm
-  零代码实现完整增删改查：后端定义 Grid/Form 元数据，前端自动渲染
-  支持 Filament 风格操作：Modal 弹窗、Drawer 抽屉、Page 新页面
--->
 <template>
-  <div class="dynamic-crud">
-    <!-- 面包屑 -->
+  <div class="container">
     <Breadcrumb v-if="showBreadcrumb" :items="breadcrumbItems" />
-
-    <!-- 动态表格（内置操作弹窗/抽屉） -->
     <DynamicTable
       ref="tableRef"
       :api-prefix="apiPrefix"
-      :show-add-button="false"
+      :show-add-button="showAddButton"
       :show-select-all="showSelectAll"
       :show-border="showBorder"
       :empty-text="emptyText"
@@ -24,12 +15,13 @@
       <template #toolbar-left>
         <slot name="toolbar-left" />
       </template>
+      <template #toolbar-right>
+        <slot name="toolbar-right" />
+      </template>
       <template #row-actions="slotProps">
         <slot name="row-actions" v-bind="slotProps" />
       </template>
     </DynamicTable>
-
-    <!-- 动态表单（独立 Drawer，用于新增/编辑） -->
     <DynamicForm
       ref="formRef"
       :api-prefix="apiPrefix"
@@ -42,96 +34,160 @@
 </template>
 
 <script lang="ts" setup>
-  import { ref, computed } from 'vue';
-  import { Message, Modal } from '@arco-design/web-vue';
-  import axios from 'axios';
-  import DynamicTable from './DynamicTable.vue';
-  import DynamicForm from './DynamicForm.vue';
-  import Breadcrumb from '@/components/breadcrumb/index.vue';
+import { ref, computed } from 'vue';
+import { Message, Modal } from '@arco-design/web-vue';
+import { useRoute, useRouter } from 'vue-router';
+import axios from '@/api/interceptor';
+import DynamicTable from './DynamicTable.vue';
+import DynamicForm from './DynamicForm.vue';
+import Breadcrumb from '@/components/breadcrumb/index.vue';
 
-  const props = defineProps<{
-    apiPrefix: string;
-    breadcrumb?: string[];
-    showBreadcrumb?: boolean;
-    showSelectAll?: boolean;
-    showBorder?: boolean;
-    emptyText?: string;
-    perPageOptions?: number[];
-    drawerWidth?: number | string;
-    addTitle?: string;
-    editTitle?: string;
-  }>();
+const props = defineProps<{
+  apiPrefix: string;
+  breadcrumb?: string[];
+  showBreadcrumb?: boolean;
+  showSelectAll?: boolean;
+  showBorder?: boolean;
+  showAddButton?: boolean;
+  emptyText?: string;
+  perPageOptions?: number[];
+  drawerWidth?: number | string;
+  addTitle?: string;
+  editTitle?: string;
+}>();
 
-  const tableRef = ref<InstanceType<typeof DynamicTable>>();
-  const formRef = ref<InstanceType<typeof DynamicForm>>();
+const tableRef = ref<InstanceType<typeof DynamicTable>>();
+const formRef = ref<InstanceType<typeof DynamicForm>>();
+const router = useRouter();
+const route = useRoute();
 
-  const breadcrumbItems = computed(() => props.breadcrumb || []);
-  const showSelectAll = computed(() => props.showSelectAll !== false);
-  const showBorder = computed(() => props.showBorder !== false);
-  const emptyText = computed(() => props.emptyText || '暂无数据');
-  const perPageOptions = computed(() => props.perPageOptions || [10, 20, 50, 100]);
-  const drawerWidth = computed(() => props.drawerWidth || 600);
-  const addTitle = computed(() => props.addTitle || '新增');
-  const editTitle = computed(() => props.editTitle || '编辑');
+const breadcrumbItems = computed(() => props.breadcrumb || []);
+const showBreadcrumb = computed(() => props.showBreadcrumb !== false);
+const showSelectAll = computed(() => props.showSelectAll === true);
+const showBorder = computed(() => props.showBorder === true);
+const showAddButton = computed(() => props.showAddButton !== false);
+const emptyText = computed(() => props.emptyText || '暂无数据');
+const perPageOptions = computed(() => props.perPageOptions || [10, 20, 50, 100]);
+const drawerWidth = computed(() => props.drawerWidth || 600);
+const addTitle = computed(() => props.addTitle || '新增');
+const editTitle = computed(() => props.editTitle || '编辑');
 
-  // 打开新增
-  const openAdd = () => {
-    formRef.value?.openAdd();
-  };
+const resolveApiUrl = (url: string): string => {
+  try {
+    if (typeof url !== 'string' || !url.startsWith('/plugin/')) return url;
 
-  // 打开编辑
-  const openEdit = (record: any) => {
-    formRef.value?.openEdit(record);
-  };
-
-  // 保存成功
-  const onSaved = () => {
-    tableRef.value?.fetchData(1);
-  };
-
-  // 操作分发（处理 Page 模式的操作）
-  const handleAction = async (action: any, payload: any) => {
-    if (action.key === 'delete') {
-      handleDelete(typeof payload === 'object' ? payload.id : payload);
-    } else if (action.key === 'edit') {
-      openEdit(payload);
-    } else if (action.key === 'view' || action.key === 'show') {
-      openEdit(payload); // 默认用编辑抽屉查看
-    } else {
-      // 自定义操作，暴露给父组件
-      Message.info(`触发操作: ${action.label}`);
+    const base = (axios as any)?.defaults?.baseURL;
+    if (typeof base === 'string' && /^https?:\/\//i.test(base)) {
+      const origin = new URL(base).origin;
+      return `${origin}${url}`;
     }
-  };
 
-  // 删除
-  const handleDelete = (id: number) => {
-    Modal.confirm({
-      title: '确认删除',
-      content: '确定要删除该记录吗？此操作不可恢复。',
-      okButtonProps: { status: 'danger' },
-      onOk: async () => {
-        try {
-          await axios.delete(`${props.apiPrefix}/${id}`);
-          Message.success('删除成功');
-          tableRef.value?.fetchData(1);
-        } catch (err: any) {
-          Message.error(err?.response?.data?.msg || '删除失败');
-        }
-      },
-    });
-  };
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      return `${window.location.origin}${url}`;
+    }
 
-  defineExpose({
-    tableRef,
-    formRef,
-    refresh: () => tableRef.value?.fetchData(1),
-    openAdd,
-    openEdit,
+    return url;
+  } catch {
+    return url;
+  }
+};
+
+const openAdd = (action?: any) => {
+  const mode = String(action?.mode || 'modal');
+  if (mode === 'page') {
+    openFormPage('create', null, action);
+    return;
+  }
+  formRef.value?.openAdd({
+    mode: mode === 'drawer' ? 'drawer' : 'modal',
+    drawerProps: action?.drawerProps,
+    modalProps: action?.modalProps,
   });
+};
+
+const openEdit = (record: any, action?: any) => {
+  const mode = String(action?.mode || 'modal');
+  if (mode === 'page') {
+    openFormPage('update', record?.id, action);
+    return;
+  }
+  formRef.value?.openEdit(record, {
+    mode: mode === 'drawer' ? 'drawer' : 'modal',
+    drawerProps: action?.drawerProps,
+    modalProps: action?.modalProps,
+  });
+};
+
+const openFormPage = (context: 'create' | 'update', id: any, action?: any) => {
+  const target = String(action?.route || '/dynamic-form');
+  if (target !== '/dynamic-form') {
+    router.push(target);
+    return;
+  }
+  router.push({
+    path: '/dynamic-form',
+    query: {
+      apiPrefix: props.apiPrefix,
+      context,
+      id: id ?? undefined,
+      redirect: route.fullPath,
+      addTitle: addTitle.value,
+      editTitle: editTitle.value,
+      breadcrumb: Array.isArray(props.breadcrumb) ? props.breadcrumb.join(',') : undefined,
+    },
+  });
+};
+
+const onSaved = () => {
+  tableRef.value?.fetchData(1);
+};
+
+const handleAction = async (action: any, payload: any) => {
+  if (action.key === 'delete') {
+    handleDelete(typeof payload === 'object' ? payload.id : payload);
+  } else if (action.key === 'edit') {
+    openEdit(payload, action);
+  } else if (action.key === 'view' || action.key === 'show') {
+    openEdit(payload, action);
+  } else {
+    Message.info(`触发操作: ${action.label}`);
+  }
+};
+
+const handleDelete = (id: number) => {
+  Modal.confirm({
+    title: '确认删除',
+    content: '确定要删除该记录吗？此操作不可恢复。',
+    okButtonProps: { status: 'danger' },
+    onOk: async () => {
+      try {
+        await axios.delete(resolveApiUrl(`${props.apiPrefix}/${id}`));
+        Message.success('删除成功');
+        tableRef.value?.fetchData(1);
+      } catch (err: any) {
+        Message.error(err?.response?.data?.msg || '删除失败');
+      }
+    },
+  });
+};
+
+defineExpose({
+  tableRef,
+  formRef,
+  refresh: () => tableRef.value?.fetchData(1),
+  openAdd,
+  openEdit,
+});
 </script>
 
 <style scoped lang="less">
+.container {
+  padding: 10px;
+}
+</style>
+
+<style scoped lang="less">
   .dynamic-crud {
-    padding: 0 20px 20px 20px;
+    padding: 10px;
   }
 </style>

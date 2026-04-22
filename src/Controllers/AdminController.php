@@ -25,13 +25,7 @@ abstract class AdminController extends Controller
 
     protected function grid(): Grid
     {
-        $grid = Grid::make($this->model)
-            ->createAction()
-            ->editAction()
-            ->deleteAction()
-            ->batchDeleteAction();
-        $this->configureActions($grid);
-        return $grid;
+        return Grid::make($this->model);
     }
 
     /**
@@ -46,6 +40,46 @@ abstract class AdminController extends Controller
      */
     protected function configureActions(Grid $grid): void {}
 
+    protected function defaultGridActions(): array
+    {
+        return ['create', 'edit', 'view', 'delete', 'batch-delete'];
+    }
+
+    protected function applyGridConfiguration(Grid $grid): void
+    {
+        $this->configureActions($grid);
+        $this->ensureDefaultActions($grid);
+    }
+
+    protected function ensureDefaultActions(Grid $grid): void
+    {
+        $existingKeys = [];
+        foreach ($grid->getActions() as $a) {
+            $k = $a['key'] ?? null;
+            if (is_string($k) && $k !== '') {
+                $existingKeys[$k] = true;
+            }
+        }
+
+        foreach ($this->defaultGridActions() as $key) {
+            if (!is_string($key) || $key === '' || isset($existingKeys[$key])) {
+                continue;
+            }
+
+            if ($key === 'create') {
+                $grid->createAction();
+            } elseif ($key === 'edit') {
+                $grid->editAction();
+            } elseif ($key === 'view') {
+                $grid->viewAction();
+            } elseif ($key === 'delete') {
+                $grid->deleteAction();
+            } elseif ($key === 'batch-delete') {
+                $grid->batchDeleteAction();
+            }
+        }
+    }
+
     abstract protected function form(): Form;
 
     protected function detail($id): Show
@@ -57,7 +91,9 @@ abstract class AdminController extends Controller
 
     public function index(Request $request)
     {
-        $data = $this->grid()->resolve($request);
+        $grid = $this->grid();
+        $this->applyGridConfiguration($grid);
+        $data = $grid->resolve($request);
         // 附加 Session 通知
         $data['notifications'] = Notification::pull();
 
@@ -150,10 +186,12 @@ abstract class AdminController extends Controller
      */
     public function gridMeta()
     {
+        $grid = $this->grid();
+        $this->applyGridConfiguration($grid);
         return $this->success([
-            'columns' => $this->grid()->getColumns(),
-            'filters' => $this->grid()->getFilters(),
-            ...$this->grid()->resolveActionsByPosition(),
+            'columns' => $grid->getColumns(),
+            'filters' => $grid->getFilters(),
+            ...$grid->resolveActionsByPosition(),
         ]);
     }
 

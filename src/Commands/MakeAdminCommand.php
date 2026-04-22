@@ -226,7 +226,7 @@ class MakeAdminCommand extends Command
             if (!is_dir($dir)) {
                 mkdir($dir, 0755, true);
             }
-            file_put_contents($modelPath, $content);
+            $this->writeFile($modelPath, $content);
         } else {
             $this->generateFile($modelPath, 'model.core.stub', $replacements);
         }
@@ -298,7 +298,7 @@ class MakeAdminCommand extends Command
             return;
         }
 
-        file_put_contents($routerPath, $content);
+        $this->writeFile($routerPath, $content);
         $this->generatedFiles[] = $routerPath;
     }
 
@@ -342,7 +342,8 @@ class MakeAdminCommand extends Command
 
             $stubPath = dirname(__DIR__, 2) . "/stubs/{$stub}";
             if (file_exists($stubPath)) {
-                copy($stubPath, $targetPath);
+                $content = file_get_contents($stubPath);
+                $this->writeFile($targetPath, $content);
                 $this->generatedFiles[] = $targetPath;
             }
         }

@@ -9,6 +9,97 @@ namespace Dabashan\DbsAdmin\Traits;
  */
 trait HasFileGeneration
 {
+    protected function fileHeader(string $type): string
+    {
+        if ($type === 'vue') {
+            return <<<VUE
+<!--
+ * @Author: quickly generate using dbs-admin
+ * @Date: 2025-09-05 18:47:23
+ * @Help: wiki.dabashan.cc
+-->
+
+VUE;
+        }
+
+        if ($type === 'php') {
+            return <<<PHP
+/*
+ * @Author: quickly generate using dbs-admin
+ * @Date: 2025-09-05 18:47:23
+ * @Help: wiki.dabashan.cc
+ */
+
+PHP;
+        }
+
+        return <<<TS
+/*
+ * @Author: quickly generate using dbs-admin
+ * @Date: 2025-09-05 18:47:23
+ * @Help: wiki.dabashan.cc
+ */
+
+TS;
+    }
+
+    protected function normalizeHeader(string $path, string $content): string
+    {
+        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+
+        if ($ext === 'json') {
+            return $content;
+        }
+
+        if ($ext === 'vue') {
+            $header = $this->fileHeader('vue');
+            $trimmed = ltrim($content);
+            if (str_starts_with($trimmed, '<!--')) {
+                $end = strpos($trimmed, '-->');
+                if ($end !== false) {
+                    $rest = ltrim(substr($trimmed, $end + 3));
+                    return $header . $rest;
+                }
+            }
+            return $header . $content;
+        }
+
+        if ($ext === 'php') {
+            $header = $this->fileHeader('php');
+            if (preg_match('/^<\?php\s*/', $content, $m)) {
+                $offset = strlen($m[0]);
+                $after = substr($content, $offset);
+                $afterTrim = ltrim($after);
+                if (preg_match('/^(\/\*\*?[\s\S]*?\*\/\s*)/', $afterTrim, $cm)) {
+                    $afterTrim = substr($afterTrim, strlen($cm[1]));
+                }
+                return "<?php\n\n" . $header . $afterTrim;
+            }
+            return $header . $content;
+        }
+
+        if (in_array($ext, ['ts', 'tsx', 'js', 'jsx'], true)) {
+            $header = $this->fileHeader('ts');
+            $trimmed = ltrim($content);
+            if (str_starts_with($trimmed, '/*')) {
+                $end = strpos($trimmed, '*/');
+                if ($end !== false) {
+                    $rest = ltrim(substr($trimmed, $end + 2));
+                    return $header . $rest;
+                }
+            }
+            return $header . $content;
+        }
+
+        return $content;
+    }
+
+    protected function writeFile(string $path, string $content): void
+    {
+        $content = $this->normalizeHeader($path, $content);
+        file_put_contents($path, $content);
+    }
+
     /**
      * 生成文件
      *
@@ -40,7 +131,7 @@ trait HasFileGeneration
 
         $content = file_get_contents($stubPath);
         $content = str_replace(array_keys($replacements), array_values($replacements), $content);
-        file_put_contents($path, $content);
+        $this->writeFile($path, $content);
 
         if ($force && file_exists($path)) {
             $this->info("  Overwritten: {$path}");

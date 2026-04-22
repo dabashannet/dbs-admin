@@ -29,10 +29,11 @@ class Grid
     protected ?string $defaultSortField = 'created_at';
     protected string $defaultSortOrder = 'desc';
     protected array $actions = [];           // 操作列表（行操作/头部操作/批量操作）
-    protected bool $showSelectAll = true;    // 显示全选复选框
+    protected bool $showSelectAll = false;   // 显示全选复选框
     protected bool $showPagination = true;   // 显示分页
-    protected bool $showBorder = true;       // 显示边框
+    protected bool $showBorder = false;      // 显示边框
     protected ?string $emptyText = null;     // 空数据提示文本
+    protected array $filterLayout = [];      // 筛选布局参数（前端渲染使用）
     protected array $rowAttributes = [];     // 行属性
     protected ?\Closure $queryCallback = null; // 自定义查询回调
     protected array $whenConditions = [];     // 条件筛选
@@ -117,6 +118,30 @@ class Grid
     public function options(array $options): self
     {
         $this->lastFilter?->options($options);
+        return $this;
+    }
+
+    public function default(mixed $value): self
+    {
+        $this->lastFilter?->default($value);
+        return $this;
+    }
+
+    public function placeholder(string $text): self
+    {
+        $this->lastFilter?->placeholder($text);
+        return $this;
+    }
+
+    public function multiple(bool $value = true): self
+    {
+        $this->lastFilter?->multiple($value);
+        return $this;
+    }
+
+    public function extra(array $attrs): self
+    {
+        $this->lastFilter?->extra($attrs);
         return $this;
     }
 
@@ -218,13 +243,15 @@ class Grid
     /**
      * 快捷方法：行编辑操作（弹窗模式）
      */
-    public function editAction(string $label = '编辑', string $mode = Action::MODE_DRAWER): self
+    public function editAction(string $label = '编辑', string $mode = Action::MODE_MODAL): self
     {
         $action = Action::make('edit', $label)->row();
         if ($mode === Action::MODE_MODAL) {
             $action->modal();
         } elseif ($mode === Action::MODE_DRAWER) {
             $action->drawer();
+        } elseif ($mode === Action::MODE_PAGE) {
+            $action->page();
         }
         $this->actions[] = $action;
         return $this;
@@ -256,11 +283,19 @@ class Grid
     /**
      * 快捷方法：头部新增操作
      */
-    public function createAction(string $label = '新增'): self
+    public function createAction(string $label = '新增', string $mode = Action::MODE_MODAL): self
     {
-        $this->actions[] = Action::make('create', $label)
+        $action = Action::make('create', $label)
             ->header()
             ->type('primary');
+        if ($mode === Action::MODE_MODAL) {
+            $action->modal();
+        } elseif ($mode === Action::MODE_DRAWER) {
+            $action->drawer();
+        } elseif ($mode === Action::MODE_PAGE) {
+            $action->page();
+        }
+        $this->actions[] = $action;
         return $this;
     }
 
@@ -323,6 +358,12 @@ class Grid
     public function emptyText(string $text): self
     {
         $this->emptyText = $text;
+        return $this;
+    }
+
+    public function filterLayout(array $layout): self
+    {
+        $this->filterLayout = $layout;
         return $this;
     }
 
@@ -435,6 +476,7 @@ class Grid
             return [
                 'columns' => array_map(fn(Column $c) => $c->toArray(), $this->columns),
                 'filters' => array_map(fn(Filter $f) => $f->toArray(), $this->filters),
+                'filter_layout' => $this->filterLayout,
                 'items' => $items,
                 'current_page' => $paginator->currentPage(),
                 'total' => $paginator->total(),
@@ -461,6 +503,7 @@ class Grid
         return [
             'columns' => array_map(fn(Column $c) => $c->toArray(), $this->columns),
             'filters' => array_map(fn(Filter $f) => $f->toArray(), $this->filters),
+            'filter_layout' => $this->filterLayout,
             'items' => $items,
             'actions' => $this->resolveActions(),
             'headerActions' => $this->resolveActions(Action::POSITION_HEADER),
@@ -520,10 +563,10 @@ class Grid
     protected function resolveActions(?string $position = null): array
     {
         $actions = $position
-            ? array_filter($this->actions, fn(Action $a) => $a->getPosition() === $position)
-            : $this->actions;
+            ? array_values(array_filter($this->actions, fn(Action $a) => $a->getPosition() === $position))
+            : array_values($this->actions);
 
-        return array_map(fn(Action $a) => $a->toArray(), $actions);
+        return array_values(array_map(fn(Action $a) => $a->toArray(), $actions));
     }
 
     /**

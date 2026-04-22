@@ -197,7 +197,7 @@ PHP;
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);
         }
-        file_put_contents($path, $content);
+        $this->writeFile($path, $content);
     }
 
     /**
@@ -227,7 +227,7 @@ PHP;
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);
         }
-        file_put_contents($path, $content);
+        $this->writeFile($path, $content);
     }
 
     /**
@@ -262,7 +262,7 @@ PHP;
 </script>
 VUE;
         $this->ensureDirectoryExists(dirname($vuePagePath));
-        file_put_contents($vuePagePath, $vuePageContent);
+        $this->writeFile($vuePagePath, $vuePageContent);
         $this->line("  <fg=green>✓</> Vue 页面：resources/views/{$viewName}/index.vue");
 
         // 2. 前端路由文件（Vite 自动发现）
@@ -281,7 +281,7 @@ export default [
 ];
 TS;
         $this->ensureDirectoryExists(dirname($routerPath));
-        file_put_contents($routerPath, $routerContent);
+        $this->writeFile($routerPath, $routerContent);
         $this->line("  <fg=green>✓</> 前端路由：resources/routes/{$kebabName}.ts");
 
         // 3. 国际化文件
@@ -293,7 +293,7 @@ export default {
 };
 TS;
         $this->ensureDirectoryExists(dirname($localeZhPath));
-        file_put_contents($localeZhPath, $localeZhContent);
+        $this->writeFile($localeZhPath, $localeZhContent);
         $this->line("  <fg=green>✓</> 中文语言包：resources/views/{$viewName}/locale/zh-CN.ts");
 
         $localeEnPath = "{$pluginPath}/resources/views/{$viewName}/locale/en-US.ts";
@@ -304,7 +304,7 @@ export default {
 };
 TS;
         $this->ensureDirectoryExists(dirname($localeEnPath));
-        file_put_contents($localeEnPath, $localeEnContent);
+        $this->writeFile($localeEnPath, $localeEnContent);
         $this->line("  <fg=green>✓</> 英文语言包：resources/views/{$viewName}/locale/en-US.ts");
 
         // 4. 确保 DynamicCrud 组件存在
@@ -334,7 +334,8 @@ TS;
             $targetPath = "{$targetDir}/{$filename}";
             $stubPath = "{$stubsDir}/{$stub}";
             if (!file_exists($targetPath) && file_exists($stubPath)) {
-                copy($stubPath, $targetPath);
+                $content = file_get_contents($stubPath);
+                $this->writeFile($targetPath, $content);
                 $this->line("  <fg=green>✓</> Dynamic component created: {$filename}");
             }
         }

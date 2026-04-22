@@ -52,7 +52,7 @@
   import { ref, reactive, onMounted } from 'vue';
   import { Message } from '@arco-design/web-vue';
   import { IconPlus } from '@arco-design/web-vue/es/icon';
-  import axios from 'axios';
+  import axios from '@/api/interceptor';
 
   interface {{itemType}} {
     id: number;
@@ -60,7 +60,7 @@
     created_at: string;
   }
 
-  const API_BASE = '/plugin/{{pluginKebab}}/admin/{{parent}}/{{kebabName}}';
+  const API_BASE = '/plugin/{{pluginKebab}}/admin/{{kebabName}}';
 
   const loading = ref(false);
   const tableData = ref<{{itemType}}[]>([]);
@@ -170,6 +170,6 @@
 
 <style scoped lang="less">
   .container {
-    padding: 0 20px 20px 20px;
+    padding: 10px;
   }
 </style>

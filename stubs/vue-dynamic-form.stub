@@ -5,59 +5,32 @@
 -->
 <template>
   <a-drawer
+    v-if="mode === 'drawer'"
     v-model:visible="visible"
-    :title="isEdit ? editTitle : addTitle"
-    :width="drawerWidth"
+    :title="isEdit ? editTitleText : addTitleText"
+    :width="drawerWidthCurrent"
     :mask-closable="false"
-    @ok="handleSubmit"
-    @cancel="handleCancel"
+    :unmount-on-close="true"
+    :footer="false"
   >
-    <a-form
-      ref="formRef"
-      :model="formData"
-      :layout="formConfig?.layout || 'horizontal'"
-      :label-width="formConfig?.labelWidth || 120"
-      auto-label-width
-      style="padding-right: 16px"
-    >
-      <!-- Tab 分组 -->
-      <a-tabs v-if="layoutMode === 'tabs'" v-model:active-key="activeTab">
-        <a-tab-pane v-for="(tab, idx) in layoutConfig" :key="String(idx)" :title="tab.label || tab.title">
-          <template v-for="fieldKey in tab.fields" :key="fieldKey">
-            <a-form-item
-              v-if="getFieldByKey(fieldKey) && isFieldVisible(fieldKey)"
-              :field="fieldKey"
-              :label="getFieldByKey(fieldKey)?.title"
-              :rules="getFieldRules(fieldKey)"
-            >
-              <component
-                :is="getComponent(getFieldByKey(fieldKey)!)"
-                v-model="formData[fieldKey]"
-                v-bind="getFieldProps(getFieldByKey(fieldKey)!)"
-              />
-            </a-form-item>
-          </template>
-        </a-tab-pane>
-      </a-tabs>
-
-      <!-- 默认布局 -->
-      <template v-else>
-        <a-form-item
-          v-for="field in visibleFields"
-          :key="field.key"
-          :field="field.key"
-          :label="field.title"
-          :rules="getFieldRules(field.key)"
-        >
-          <component
-            :is="getComponent(field)"
-            v-model="formData[field.key]"
-            v-bind="getFieldProps(field)"
-          />
-        </a-form-item>
-      </template>
-    </a-form>
+    <FormBody />
   </a-drawer>
+
+  <a-modal
+    v-else-if="mode === 'modal'"
+    v-model:visible="visible"
+    :title="isEdit ? editTitleText : addTitleText"
+    :width="modalWidth"
+    :mask-closable="false"
+    :unmount-on-close="true"
+    :footer="false"
+  >
+    <FormBody />
+  </a-modal>
+
+  <a-card v-else class="general-card form-page-card" :bordered="false">
+    <FormBody />
+  </a-card>
 </template>
 
 <script lang="ts" setup>

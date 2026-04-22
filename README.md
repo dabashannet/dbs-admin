@@ -336,6 +336,21 @@ php artisan migrate    # 如有迁移文件
 - 后端：`plugins/{Plugin}/Admin/`、`plugins/{Plugin}/Models/`、`plugins/{Plugin}/Http/`
 - 前端：`plugins/{Plugin}/resources/views/`、`plugins/{Plugin}/resources/routes/`
 
+插件模式生成的页面默认使用 `DynamicCrud` 渲染（而不是静态表格/表单模板），因此在代码生成器中配置的：
+- 字段（Form）
+- 表格列（Grid Columns）
+- 筛选器（Grid Filters）
+会完整体现在最终页面效果中。
+
+插件后台路由会额外生成 DynamicCrud 所需的接口（在 `Route::apiResource()` 之前注册，避免被 `{id}` 路由误匹配）：
+- `GET {resource}/form-schema`
+- `GET {resource}/grid-meta`
+- `POST {resource}/batch-update`
+- `POST {resource}/batch-destroy`
+- `POST {resource}/{id}/toggle`
+- `POST {resource}/{id}/replicate`
+- `POST {resource}/{id}/restore`
+
 ### 使用流程
 
 1. 选择生成类型（核心模块 / 插件模块）

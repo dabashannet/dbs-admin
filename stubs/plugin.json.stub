@@ -1,26 +1,47 @@
 {
+    "_generated": {
+        "Author": "quickly generate using dbs-admin",
+        "Date": "2025-09-05 18:47:23",
+        "Help": "wiki.dabashan.cc"
+    },
     "name": "{{ pluginName }}",
     "title": "{{ pluginTitle }}",
     "description": "",
     "version": "1.0.0",
     "author": "",
-    "enabled": true,
-    "icon": "icon-apps",
+    "enabled": false,
+    "show_api": true,
+    "icon": "static/images/icon.png",
+    "providers": [
+        "Plugins\\{{ pluginStudly }}\\Providers\\PluginServiceProvider"
+    ],
     "permissions": [
         "plugin:{{ pluginName }}:view",
         "plugin:{{ pluginName }}:manage"
     ],
     "menus": [
         {
-            "title": "{{ pluginTitle }}",
-            "icon": "icon-apps",
-            "uri": "admin",
+            "uri": "base",
+            "icon": "icon-settings",
+            "title": "基础设置",
             "children": [
                 {
-                    "title": "插件首页",
-                    "uri": "admin/index"
+                    "uri": "index",
+                    "title": "插件配置",
+                    "component": "{{ pluginKebab }}/index"
+                },
+                {
+                    "uri": "items",
+                    "title": "数据管理",
+                    "component": "{{ pluginKebab }}/items"
                 }
             ]
+        },
+        {
+            "uri": "quick",
+            "icon": "icon-dashboard",
+            "title": "快速入口",
+            "component": "{{ pluginKebab }}/index"
         }
     ]
 }

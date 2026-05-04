@@ -83,6 +83,12 @@ class Column
         return $this;
     }
 
+    public function options(array $options): self
+    {
+        $this->displayOptions['options'] = $options;
+        return $this;
+    }
+
     /**
      * 开关显示（toggle 组件）
      */

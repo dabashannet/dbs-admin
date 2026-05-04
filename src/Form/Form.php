@@ -197,7 +197,9 @@ class Form
 
     public function editor(string $key, string $label, string $driver = 'wangEditor'): self
     {
-        return $this->field($key, $label)->type('editor')->editor($driver);
+        $this->field($key, $label)->type('editor');
+        $this->lastField?->editor($driver);
+        return $this;
     }
 
     public function code(string $key, string $label, string $language = 'php'): self
@@ -545,6 +547,11 @@ class Form
 
     // ==================== 核心方法 ====================
 
+    protected function isSystemTimestampKey(string $key): bool
+    {
+        return in_array($key, ['created_at', 'updated_at', 'deleted_at'], true);
+    }
+
     public function schema(?string $context = null): array
     {
         $fields = $this->fields;
@@ -557,8 +564,23 @@ class Form
                 if ($context === 'update' && $f->isCreateOnly()) {
                     return false;
                 }
+                if ($context === 'create' && $this->isSystemTimestampKey($f->getKey())) {
+                    return false;
+                }
                 return true;
             });
+        }
+
+        if ($context === null || $context === 'update') {
+            foreach ($fields as $f) {
+                if ($this->isSystemTimestampKey($f->getKey())) {
+                    if ($f->getKey() === 'updated_at' || $f->getKey() === 'deleted_at') {
+                        $f->type('hidden');
+                        continue;
+                    }
+                    $f->readonly(true)->disabled(true)->updateOnly(true);
+                }
+            }
         }
 
         return [
@@ -590,12 +612,16 @@ class Form
     public function validate(Request $request, string $context = 'create'): array
     {
         $rules = [];
+        $keys = $this->fieldKeys($context);
 
         foreach ($this->fields as $field) {
             if ($context === 'create' && $field->isUpdateOnly()) {
                 continue;
             }
             if ($context === 'update' && $field->isCreateOnly()) {
+                continue;
+            }
+            if ($this->isSystemTimestampKey($field->getKey())) {
                 continue;
             }
 
@@ -611,7 +637,13 @@ class Form
             }
         }
 
-        return $request->validate($rules);
+        $data = $request->only($keys);
+        if (empty($rules)) {
+            return $data;
+        }
+
+        $validated = $request->validate($rules);
+        return array_merge($data, $validated);
     }
 
     public function fieldKeys(string $context = 'create'): array
@@ -621,6 +653,9 @@ class Form
                 return false;
             }
             if ($context === 'update' && $f->isCreateOnly()) {
+                return false;
+            }
+            if ($this->isSystemTimestampKey($f->getKey())) {
                 return false;
             }
             return true;

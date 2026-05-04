@@ -8,6 +8,7 @@ use Dabashan\DbsAdmin\Commands\MakeAdminCommand;
 use Dabashan\DbsAdmin\Commands\MakePluginCommand;
 use Dabashan\DbsAdmin\Commands\MakePluginPageCommand;
 use Dabashan\DbsAdmin\Controllers\CodeGeneratorController;
+use Dabashan\DbsAdmin\Controllers\TaskController;
 
 class DbsAdminServiceProvider extends ServiceProvider
 {
@@ -44,6 +45,10 @@ class DbsAdminServiceProvider extends ServiceProvider
                 Route::post('/code-generator/generate', [CodeGeneratorController::class, 'generate']);
                 Route::post('/code-generator/delete', [CodeGeneratorController::class, 'delete']);
                 Route::post('/code-generator/files', [CodeGeneratorController::class, 'files']);
+                Route::get('/tasks/{id}/status', [TaskController::class, 'status']);
+                Route::get('/tasks/{id}/logs', [TaskController::class, 'logs']);
+                Route::get('/tasks/{id}/stream', [TaskController::class, 'stream']);
+                Route::post('/tasks/{id}/cancel', [TaskController::class, 'cancel']);
             });
     }
 }

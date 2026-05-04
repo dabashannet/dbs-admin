@@ -11,8 +11,8 @@ class ShowField
 {
     protected string $key;
     protected string $label;
-    protected ?string $displayType = null;
-    protected array $displayOptions = [];
+    public ?string $displayType = null;
+    public array $displayOptions = [];
     protected ?\Closure $formatCallback = null;
     protected ?string $default = null;
     protected ?string $copyableText = null;
@@ -235,7 +235,9 @@ class Show
      */
     public function text(string $key, string $label): self
     {
-        $this->fields[] = new ShowField($key, $label);
+        $field = new ShowField($key, $label);
+        $field->displayType = 'text';
+        $this->fields[] = $field;
         return $this;
     }
 
@@ -279,6 +281,39 @@ class Show
     {
         $field = new ShowField($key, $label);
         $field->badge($colors);
+        $this->fields[] = $field;
+        return $this;
+    }
+
+    /**
+     * 日期时间展示
+     */
+    public function datetime(string $key, string $label, string $format = 'Y-m-d H:i:s'): self
+    {
+        $field = new ShowField($key, $label);
+        $field->datetime($format);
+        $this->fields[] = $field;
+        return $this;
+    }
+
+    /**
+     * 标签展示
+     */
+    public function tags(string $key, string $label, string $separator = ', '): self
+    {
+        $field = new ShowField($key, $label);
+        $field->tags($separator);
+        $this->fields[] = $field;
+        return $this;
+    }
+
+    /**
+     * 复制展示
+     */
+    public function copyable(string $key, string $label, ?string $text = null): self
+    {
+        $field = new ShowField($key, $label);
+        $field->copyable($text);
         $this->fields[] = $field;
         return $this;
     }
@@ -346,11 +381,14 @@ class Show
 
     // ==================== 核心方法 ====================
 
+    /**
+     * 返回键值对数组，前端根据 schema.fields 元数据渲染
+     */
     public function toArray(): array
     {
         $data = $this->model->toArray();
 
-        // 如果定义了字段，只返回指定字段
+        // 如果定义了字段，只返回指定字段（含格式化后的值）
         if (!empty($this->fields)) {
             $result = [];
             foreach ($this->fields as $field) {
@@ -363,9 +401,31 @@ class Show
         return $data;
     }
 
+    /**
+     * 返回键值对数组（同 toArray()，兼容旧版调用）
+     */
+    public function toKeyValue(): array
+    {
+        return $this->toArray();
+    }
+
     public function getFields(): array
     {
-        return array_map(fn(ShowField $f) => $f->toArray(), $this->fields);
+        $model = $this->model;
+        $modelClass = is_object($model) ? $model::class : null;
+        $hasOptions = $modelClass && method_exists($modelClass, 'options');
+
+        return array_map(function (ShowField $f) use ($hasOptions, $modelClass) {
+            $arr = $f->toArray();
+            $key = $arr['key'] ?? null;
+            if ($hasOptions && is_string($key) && $key !== '') {
+                $opts = $modelClass::options($key);
+                if (is_array($opts) && !empty($opts)) {
+                    $arr['options'] = $opts;
+                }
+            }
+            return $arr;
+        }, $this->fields);
     }
 
     public function getModel()
@@ -386,8 +446,24 @@ class Show
     public function schema(): array
     {
         return [
-            'fields' => $this->getFields(),
+            'fields' => !empty($this->fields) ? $this->getFields() : $this->autoFields(),
             'layout' => $this->getLayout(),
         ];
+    }
+
+    /**
+     * 自动生成字段列表（默认排除 updated_at）
+     */
+    protected function autoFields(): array
+    {
+        $data = $this->model->toArray();
+        return array_values(array_filter(
+            array_map(fn($key) => [
+                'key' => $key,
+                'label' => $key,
+                'displayType' => 'text',
+            ], array_keys($data)),
+            fn($field) => $field['key'] !== 'updated_at'
+        ));
     }
 }

@@ -84,6 +84,7 @@ class CodeGeneratorController extends AdminController
                         'version' => $record->version ?? '1.0.0',
                         'enabled' => (bool) $record->enabled,
                         'installed' => true,
+                        'menus' => $record->menus ?? [],
                     ];
                 }
             } catch (\Exception) {
@@ -111,6 +112,7 @@ class CodeGeneratorController extends AdminController
                                 'version' => $config['version'] ?? '1.0.0',
                                 'enabled' => $config['enabled'] ?? true,
                                 'installed' => false,
+                                'menus' => $config['menus'] ?? [],
                             ];
                         }
                     }
@@ -204,11 +206,16 @@ class CodeGeneratorController extends AdminController
             'indexes' => 'nullable|array',
             'icon' => 'nullable|string',
             'order' => 'nullable|integer',
+            'plugin_uri' => 'nullable|string',
+            'plugin_component' => 'nullable|string',
         ]);
 
-        $preview = $this->generatePreview($validated);
-
-        return $this->success($preview);
+        try {
+            $preview = $this->generatePreview($validated);
+            return $this->success($preview);
+        } catch (\Exception $e) {
+            return $this->fail($e->getMessage());
+        }
     }
 
     public function previewAll(Request $request): \Illuminate\Http\JsonResponse
@@ -231,6 +238,10 @@ class CodeGeneratorController extends AdminController
             'tables.*.indexes' => 'nullable|array',
             'tables.*.icon' => 'nullable|string',
             'tables.*.order' => 'nullable|integer',
+            'tables.*.plugin_uri' => 'nullable|string',
+            'tables.*.plugin_component' => 'nullable|string',
+            'plugin_uri' => 'nullable|string',
+            'plugin_component' => 'nullable|string',
         ]);
 
         $virtualFiles = [];
@@ -244,6 +255,8 @@ class CodeGeneratorController extends AdminController
             'parent' => $validated['parent'] ?? null,
             'icon' => $validated['icon'] ?? null,
             'order' => $validated['order'] ?? null,
+            'plugin_uri' => $validated['plugin_uri'] ?? null,
+            'plugin_component' => $validated['plugin_component'] ?? null,
         ];
 
         foreach ($validated['tables'] as $tableCfg) {
@@ -258,10 +271,15 @@ class CodeGeneratorController extends AdminController
                 'indexes' => $tableCfg['indexes'] ?? null,
                 'icon' => $tableCfg['icon'] ?? ($base['icon'] ?? null),
                 'order' => $tableCfg['order'] ?? ($base['order'] ?? null),
+                'plugin_uri' => $tableCfg['plugin_uri'] ?? ($base['plugin_uri'] ?? null),
+                'plugin_component' => $tableCfg['plugin_component'] ?? ($base['plugin_component'] ?? null),
                 '_virtual_files' => $virtualFiles,
             ]);
-
-            $preview = $this->generatePreview($config);
+            try {
+                $preview = $this->generatePreview($config);
+            } catch (\Exception $e) {
+                return $this->fail("{$tableCfg['name']}: " . $e->getMessage());
+            }
 
             foreach (($preview['files'] ?? []) as $path) {
                 $allFiles[$path] = true;
@@ -303,6 +321,9 @@ class CodeGeneratorController extends AdminController
             'icon' => 'nullable|string',
             'order' => 'nullable|integer',
             'force' => 'nullable|boolean',
+            'plugin_uri' => 'nullable|string',
+            'plugin_component' => 'nullable|string',
+            'plugin_icon_attachment_id' => 'nullable|integer',
         ]);
 
         try {
@@ -442,6 +463,7 @@ class CodeGeneratorController extends AdminController
             'db_types' => [
                 'string' => ['label' => '字符串', 'migration' => "string('{name}')"],
                 'text' => ['label' => '长文本', 'migration' => "text('{name}')"],
+                'longText' => ['label' => '超长文本', 'migration' => "longText('{name}')"],
                 'integer' => ['label' => '整数', 'migration' => "integer('{name}')"],
                 'bigInteger' => ['label' => '大整数', 'migration' => "bigInteger('{name}')"],
                 'decimal' => ['label' => '小数', 'migration' => "decimal('{name}', 10, 2)"],
@@ -449,6 +471,7 @@ class CodeGeneratorController extends AdminController
                 'boolean' => ['label' => '布尔值', 'migration' => "boolean('{name}')"],
                 'date' => ['label' => '日期', 'migration' => "date('{name}')"],
                 'dateTime' => ['label' => '日期时间', 'migration' => "dateTime('{name}')"],
+                'time' => ['label' => '时间', 'migration' => "time('{name}')"],
                 'timestamp' => ['label' => '时间戳', 'migration' => "timestamp('{name}')"],
                 'json' => ['label' => 'JSON', 'migration' => "json('{name}')"],
             ],
@@ -457,6 +480,8 @@ class CodeGeneratorController extends AdminController
 
     protected function generatePreview(array $config): array
     {
+        $this->assertUniqueFieldKeys($config['fields'] ?? []);
+
         $name = Str::studly($config['name']);
         $kebabName = Str::kebab($config['name']);
         $pluralSnake = Str::snake(Str::plural($name));
@@ -466,10 +491,12 @@ class CodeGeneratorController extends AdminController
         $tableName = $config['table'] ?? ($config['type'] === 'plugin'
             ? "p_{$pluginKebab}_{$pluralSnake}"
             : "admin_{$pluralSnake}");
-        $modelName = $config['type'] === 'plugin' ? $name : "Admin{$name}";
-        $controllerName = "{$name}Controller";
+        $modelName = $config['type'] === 'plugin' ? $name : "ad_Admin{$name}";
+        $controllerName = $config['type'] === 'plugin' ? "{$name}Controller" : "ad_{$name}Controller";
         $icon = $config['icon'] ?? 'icon-file';
         $order = $config['order'] ?? 90;
+        $pluginUri = $config['plugin_uri'] ?? null;
+        $pluginComponent = $config['plugin_component'] ?? null;
         $fields = $config['fields'] ?? [];
         $gridColumns = $config['grid_columns'] ?? [];
         $indexes = $config['indexes'] ?? [];
@@ -498,7 +525,7 @@ class CodeGeneratorController extends AdminController
         );
 
         // 生成 Model 代码
-        $modelCode = $this->generateModelCode($modelName, $tableName, $config['fillable'] ?? [], $config['type'], $plugin);
+        $modelCode = $this->generateModelCode($modelName, $tableName, $config['fillable'] ?? [], $config['type'], $plugin, $fields, $config['filters'] ?? []);
 
         // 生成迁移代码
         $migrationCode = $this->generateMigrationCode($tableName, $fields);
@@ -529,7 +556,7 @@ class CodeGeneratorController extends AdminController
             if ($isNewPlugin) {
                 $pluginTitle = $config['plugin_title'] ?? '';
                 $pluginStudly = Str::studly(Str::snake($plugin));
-                $pluginJson = $this->generatePluginJson($plugin, $pluginTitle, $name, $kebabName, $icon);
+                $pluginJson = $this->generatePluginJson($plugin, $pluginTitle, $name, $kebabName, $icon, $pluginUri, $pluginComponent);
                 $serviceProvider = $this->generatePluginServiceProvider($plugin, $name);
                 $pluginIndexVue = $this->generatePluginIndexVue($pluginTitle ?: $pluginStudly);
 
@@ -580,7 +607,9 @@ class CodeGeneratorController extends AdminController
                 $name,
                 $kebabName,
                 $icon,
-                $virtualFiles[$pluginJsonKey] ?? null
+                $virtualFiles[$pluginJsonKey] ?? null,
+                $pluginUri,
+                $pluginComponent
             );
 
             $pluginFiles['admin_routes'] = [
@@ -628,7 +657,7 @@ class CodeGeneratorController extends AdminController
                 'content' => $controllerCode,
             ],
             'model' => [
-                'path' => $this->getModelPath($modelName, $config['type'], $plugin),
+                'path' => $this->getModelPath($name, $config['type'], $plugin),
                 'content' => $modelCode,
             ],
             'migration' => [
@@ -655,6 +684,26 @@ class CodeGeneratorController extends AdminController
         ];
     }
 
+    protected function assertUniqueFieldKeys(array $fields): void
+    {
+        $seen = [];
+        $duplicates = [];
+        foreach ($fields as $field) {
+            $key = isset($field['key']) ? strtolower(trim((string) $field['key'])) : '';
+            if ($key === '') {
+                continue;
+            }
+            if (isset($seen[$key])) {
+                $duplicates[$key] = true;
+            } else {
+                $seen[$key] = true;
+            }
+        }
+        if (!empty($duplicates)) {
+            throw new \InvalidArgumentException('字段名不可以重复：' . implode(', ', array_keys($duplicates)));
+        }
+    }
+
     protected function generateControllerCode(string $name, string $controllerName, string $modelName, string $type, array $fields, array $gridColumns, array $filters = [], array $filterLayout = [], ?string $plugin = null): string
     {
         $pluginStudly = $plugin ? Str::studly($plugin) : null;
@@ -666,13 +715,23 @@ class CodeGeneratorController extends AdminController
             ? "Plugins\\{$pluginStudly}\\Models\\{$modelName}"
             : "App\\Admin\\Models\\{$modelName}";
 
-        $gridColumnsCode = $this->formatGridColumns($gridColumns, $fields);
-        $formFieldsCode = $this->formFields($fields);
-        $filterCode = $this->formatGridFilters($filters, $fields);
+        $gridColumnsCode = $this->formatGridColumns($gridColumns, $fields, $modelName);
+        $formFieldsCode = $this->formFields($fields, $modelName);
+        $filterCode = $this->formatGridFilters($filters, $fields, $modelName);
         $filterLayoutCode = '';
         if (!empty($filterLayout) && is_array($filterLayout)) {
             $filterLayoutCode = "\n        \$grid->filterLayout(" . var_export($filterLayout, true) . ");";
         }
+
+        // 检测字段中是否包含 created_at，若无则默认按 id 排序
+        $hasCreatedAt = false;
+        foreach ($fields as $field) {
+            if (($field['key'] ?? '') === 'created_at') {
+                $hasCreatedAt = true;
+                break;
+            }
+        }
+        $defaultSortCode = $hasCreatedAt ? '' : "\n            ->defaultSort('id', 'desc')";
 
         $date = $this->formatDate();
 
@@ -703,7 +762,7 @@ class {$controllerName} extends AdminController
     protected function grid(): Grid
     {
         return Grid::make({$modelName}::class)
-            {$gridColumnsCode}
+            {$gridColumnsCode}{$defaultSortCode}
             ->perPage(15);
     }
 
@@ -722,11 +781,40 @@ class {$controllerName} extends AdminController
 PHP;
     }
 
-    protected function formatGridColumns(array $gridColumns, array $fields): string
+    protected function formatGridColumns(array $gridColumns, array $fields, string $modelName): string
     {
+        $fieldMeta = [];
+        foreach ($fields as $f) {
+            $k = $f['key'] ?? '';
+            if (!$k) {
+                continue;
+            }
+            $dbType = $f['db_type'] ?? '';
+            $hasOptions = false;
+            $opt = $f['options'] ?? null;
+            if (is_string($opt) && trim($opt) !== '') {
+                $decoded = json_decode($opt, true);
+                $hasOptions = is_array($decoded) && !empty($decoded);
+            } elseif (is_array($opt)) {
+                $hasOptions = !empty($opt);
+            }
+            $fieldMeta[$k] = [
+                'hasOptions' => $hasOptions,
+                'isBoolean' => $dbType === 'boolean',
+            ];
+        }
+
         if (empty($gridColumns)) {
             $lines = [];
             $lines[] = "->column('id', 'ID')->sortable()";
+            // 收集已有字段 key，用于判断是否自动追加时间戳列
+            $fieldKeys = [];
+            foreach ($fields as $field) {
+                $k = $field['key'] ?? '';
+                if ($k) {
+                    $fieldKeys[$k] = true;
+                }
+            }
             foreach ($fields as $field) {
                 $key = $field['key'] ?? '';
                 if (!$key || in_array($key, ['id', 'created_at', 'updated_at', 'deleted_at'], true)) {
@@ -735,7 +823,12 @@ PHP;
                 $label = $field['label'] ?? $key;
                 $lines[] = "->column('{$key}', '{$label}')";
             }
-            $lines[] = "->column('created_at', '创建时间')->sortable()";
+            if (isset($fieldKeys['created_at'])) {
+                $lines[] = "->column('created_at', '创建时间')->sortable()->datetime()";
+            }
+            if (isset($fieldKeys['updated_at'])) {
+                $lines[] = "->column('updated_at', '更新时间')->sortable()->datetime()";
+            }
             return implode("\n            ", $lines);
         }
 
@@ -775,6 +868,16 @@ PHP;
                     $displayOptions = is_array($decoded) ? $decoded : [];
                 }
                 $line .= $this->formatDisplayType($displayType, $displayOptions);
+
+                if ($displayType === 'badge' && !empty($key) && isset($fieldMeta[$key]) && ($fieldMeta[$key]['hasOptions'] || $fieldMeta[$key]['isBoolean'])) {
+                    $prop = Str::camel($key) . 'Map';
+                    $line .= "->options({$modelName}::\${$prop})";
+                }
+
+                if (in_array($displayType, ['switch', 'toggle'], true) && !empty($key) && isset($fieldMeta[$key]) && ($fieldMeta[$key]['hasOptions'] || $fieldMeta[$key]['isBoolean'])) {
+                    $prop = Str::camel($key) . 'Map';
+                    $line .= "->options({$modelName}::\${$prop})";
+                }
             }
             // 默认值
             if (array_key_exists('default', $col) && $col['default'] !== '' && $col['default'] !== null) {
@@ -862,7 +965,7 @@ PHP;
             'datetime' => !empty($options['format']) ? "->datetime('{$options['format']}')" : (!empty($options['fmt']) ? "->datetime('{$options['fmt']}')" : '->datetime()'),
 
             // 金额：money('符号', 小数位)
-            'money' => '->money(' . (!empty($options['symbol']) ? "'{$options['symbol']}', " : (!empty($options['currency']) ? "'{$options['currency']}', " : '')) . ($options['decimals'] ?? ($options['decimal'] ?? 2)) . ')',
+            'money' => "->money('" . ($options['symbol'] ?? ($options['currency'] ?? '¥')) . "', " . ($options['decimals'] ?? ($options['decimal'] ?? 2)) . ')',
 
             // 计数：count()
             'count' => '->count()',
@@ -871,8 +974,17 @@ PHP;
         };
     }
 
-    protected function formatGridFilters(array $filters, array $fields): string
+    protected function formatGridFilters(array $filters, array $fields, string $modelName): string
     {
+        $dbTypeMap = [];
+        foreach ($fields as $f) {
+            $k = $f['key'] ?? '';
+            if (!$k) {
+                continue;
+            }
+            $dbTypeMap[$k] = $f['db_type'] ?? '';
+        }
+
         if (empty($filters)) {
             $lines = [];
             foreach ($fields as $field) {
@@ -909,10 +1021,11 @@ PHP;
                         $decoded = $options;
                     }
                     if (is_array($decoded) && !empty($decoded)) {
-                        $optionsStr = var_export($decoded, true);
-                        $line .= "->options({$optionsStr})";
+                        $prop = Str::camel($key) . 'Map';
+                        $line .= "->options({$modelName}::\${$prop})";
                     } elseif ($dbType === 'boolean') {
-                        $line .= "->options(" . var_export(['1' => '启用', '0' => '禁用'], true) . ")";
+                        $prop = Str::camel($key) . 'Map';
+                        $line .= "->options({$modelName}::\${$prop})";
                     }
                 }
 
@@ -925,6 +1038,16 @@ PHP;
                 if (in_array($fieldType, ['checkbox'], true) && in_array($type, ['select', 'equal'], true)) {
                     $line .= '->multiple()';
                 }
+
+                $valueType = 'text';
+                if (in_array($dbType, ['integer', 'bigInteger', 'decimal', 'float', 'double'], true)) {
+                    $valueType = 'number';
+                } elseif (in_array($dbType, ['date'], true)) {
+                    $valueType = 'date';
+                } elseif (in_array($dbType, ['dateTime', 'timestamp'], true)) {
+                    $valueType = 'datetime';
+                }
+                $line .= '->extra(' . var_export(['valueType' => $valueType, 'dbType' => $dbType], true) . ')';
 
                 $lines[] = $line . ';';
             }
@@ -950,12 +1073,12 @@ PHP;
                 if (is_string($options)) {
                     $decoded = json_decode($options, true);
                     if (is_array($decoded)) {
-                        $optionsStr = var_export($decoded, true);
-                        $line .= "->options({$optionsStr})";
+                        $prop = Str::camel($key) . 'Map';
+                        $line .= "->options({$modelName}::\${$prop})";
                     }
                 } elseif (is_array($options)) {
-                    $optionsStr = var_export($options, true);
-                    $line .= "->options({$optionsStr})";
+                    $prop = Str::camel($key) . 'Map';
+                    $line .= "->options({$modelName}::\${$prop})";
                 }
             }
             // 默认值
@@ -982,6 +1105,22 @@ PHP;
             if (!empty($filter['collapsed_hidden'])) {
                 $extra['collapsedHidden'] = true;
             }
+
+            $dbType = (string) ($dbTypeMap[$key] ?? '');
+            if (!isset($extra['dbType']) && $dbType !== '') {
+                $extra['dbType'] = $dbType;
+            }
+            if (!isset($extra['valueType'])) {
+                $valueType = 'text';
+                if (in_array($dbType, ['integer', 'bigInteger', 'decimal', 'float', 'double'], true)) {
+                    $valueType = 'number';
+                } elseif (in_array($dbType, ['date'], true)) {
+                    $valueType = 'date';
+                } elseif (in_array($dbType, ['dateTime', 'timestamp'], true)) {
+                    $valueType = 'datetime';
+                }
+                $extra['valueType'] = $valueType;
+            }
             if (!empty($extra)) {
                 $line .= '->extra(' . var_export($extra, true) . ')';
             }
@@ -996,7 +1135,7 @@ PHP;
         return implode("\n        ", $lines);
     }
 
-    protected function formFields(array $fields): string
+    protected function formFields(array $fields, string $modelName): string
     {
         if (empty($fields)) {
             return "->text('name', '名称')->required()";
@@ -1039,18 +1178,31 @@ PHP;
             'hidden' => 'hidden',
         ];
 
+        $exists = [];
+        foreach ($fields as $f) {
+            $k = $f['key'] ?? '';
+            if ($k) {
+                $exists[$k] = true;
+            }
+        }
+
         $lines = [];
         foreach ($fields as $field) {
             $fieldType = $field['type'] ?? 'text';
             $formType = $typeMap[$fieldType] ?? 'text';
             $key = $field['key'] ?? '';
+            if (!$key) {
+                continue;
+            }
             $label = $field['label'] ?? $key;
 
             $line = "->{$formType}('{$key}', '{$label}')";
 
             // 可空
             if (!empty($field['nullable'])) {
-                $line .= '->nullable()';
+                if (empty($field['required'])) {
+                    $line .= "->rule('nullable')";
+                }
             }
 
             // 必填
@@ -1079,26 +1231,125 @@ PHP;
                 if (is_string($options)) {
                     $decoded = json_decode($options, true);
                     if (is_array($decoded)) {
-                        $line .= "->options(" . var_export($decoded, true) . ')';
+                        $prop = Str::camel($key) . 'Map';
+                        $line .= "->options({$modelName}::\${$prop})";
                     }
                 } elseif (is_array($options)) {
-                    $line .= "->options(" . var_export($options, true) . ')';
+                    $prop = Str::camel($key) . 'Map';
+                    $line .= "->options({$modelName}::\${$prop})";
                 }
+            }
+
+            if (in_array($key, ['created_at', 'updated_at', 'deleted_at'], true)) {
+                $line .= '->readonly()->disabled()->updateOnly()';
             }
 
             $lines[] = $line;
         }
 
+        // created_at 已由字段循环处理（若表有此字段），不再额外追加
         return implode("\n            ", $lines);
     }
 
-    protected function generateModelCode(string $modelName, string $tableName, array $fillable, string $type, ?string $plugin = null): string
+    protected function generateModelCode(string $modelName, string $tableName, array $fillable, string $type, ?string $plugin = null, array $fields = [], array $filters = []): string
     {
         $pluginStudly = $plugin ? Str::studly($plugin) : null;
         $namespace = $type === 'plugin' ? "Plugins\\{$pluginStudly}\\Models" : 'App\\Admin\\Models';
+        $fillable = array_values(array_filter($fillable, fn($k) => is_string($k) && $k !== '' && !in_array($k, ['id', 'created_at', 'updated_at', 'deleted_at'], true)));
         $fillableCode = empty($fillable) ? '//' : "'" . implode("',\n        '", $fillable) . "',";
         $baseModel = $type === 'plugin' ? '\\Illuminate\\Database\\Eloquent\\Model' : '\\Dabashan\\DbsAdmin\\Models\\BaseAdminModel';
         $date = $this->formatDate();
+
+        $optionMaps = [];
+        foreach ($fields as $field) {
+            $key = $field['key'] ?? '';
+            if (!$key) {
+                continue;
+            }
+            $options = $field['options'] ?? null;
+            $decoded = null;
+            if (is_string($options) && trim($options) !== '') {
+                $decoded = json_decode($options, true);
+            } elseif (is_array($options)) {
+                $decoded = $options;
+            }
+            $dbType = $field['db_type'] ?? '';
+            if (!is_array($decoded) && $dbType === 'boolean') {
+                $decoded = ['1' => '启用', '0' => '禁用'];
+            }
+            if (is_array($decoded) && !empty($decoded)) {
+                $optionMaps[$key] = $decoded;
+            }
+        }
+        foreach ($filters as $filter) {
+            $key = $filter['key'] ?? '';
+            if (!$key || array_key_exists($key, $optionMaps)) {
+                continue;
+            }
+            $options = $filter['options'] ?? null;
+            $decoded = null;
+            if (is_string($options) && trim($options) !== '') {
+                $decoded = json_decode($options, true);
+            } elseif (is_array($options)) {
+                $decoded = $options;
+            }
+            if (is_array($decoded) && !empty($decoded)) {
+                $optionMaps[$key] = $decoded;
+            }
+        }
+
+        $optionMapCode = '';
+        if (!empty($optionMaps)) {
+            $props = [];
+            $matchArms = [];
+            foreach ($optionMaps as $key => $map) {
+                $prop = Str::camel($key) . 'Map';
+                $props[] = "    public static array \${$prop} = " . var_export($map, true) . ';';
+                $matchArms[] = "            '{$key}' => self::\${$prop},";
+            }
+            $optionMapCode = "\n\n" . implode("\n\n", $props) . "\n\n    public static function options(string \$field): array\n    {\n        return match (\$field) {\n" . implode("\n", $matchArms) . "\n            default => [],\n        };\n    }";
+        }
+
+        $casts = [];
+        foreach ($fields as $field) {
+            $key = $field['key'] ?? '';
+            if (!$key) {
+                continue;
+            }
+            $dbType = $field['db_type'] ?? '';
+            $fieldType = $field['type'] ?? '';
+            if ($dbType === 'json' || in_array($fieldType, ['images', 'files', 'checkbox', 'keyValue', 'repeater'], true)) {
+                $casts[$key] = 'array';
+            }
+            if (in_array($dbType, ['integer', 'bigInteger'], true)) {
+                $casts[$key] = 'integer';
+            }
+            if (in_array($dbType, ['decimal', 'float', 'double'], true)) {
+                $casts[$key] = 'float';
+            }
+            if ($dbType === 'boolean') {
+                $casts[$key] = 'boolean';
+            }
+        }
+
+        $castsCode = '';
+        if (!empty($casts)) {
+            $lines = [];
+            foreach ($casts as $k => $t) {
+                $lines[] = "        '{$k}' => '{$t}',";
+            }
+            $castsCode = "\n\n    protected \$casts = [\n" . implode("\n", $lines) . "\n    ];";
+        }
+
+        // 检测字段中是否包含 created_at/updated_at，若无则禁用时间戳
+        $hasTimestamp = false;
+        foreach ($fields as $field) {
+            if (in_array($field['key'] ?? '', ['created_at', 'updated_at'], true)) {
+                $hasTimestamp = true;
+                break;
+            }
+        }
+        $timestampsCode = $hasTimestamp ? '' : "\n\n    public \$timestamps = false;";
 
         return <<<PHP
 <?php
@@ -1126,7 +1377,8 @@ class {$modelName} extends {$baseModel}
 
     protected \$fillable = [
         {$fillableCode}
-    ];
+    ];{$castsCode}{$timestampsCode}
+{$optionMapCode}
 }
 PHP;
     }
@@ -1161,7 +1413,7 @@ PHP;
             }
             $fieldLines .= "            {$migrationLine};\n";
         }
-        $fieldLines .= "            \$table->timestamps();\n            \$table->softDeletes();";
+        $fieldLines .= "            // \$table->timestamps(); // 自动添加创建和更新时间\n            \$table->softDeletes();";
 
         return <<<PHP
 <?php
@@ -1199,6 +1451,13 @@ PHP;
             return '';
         }
 
+        $disallowedFulltextFields = [
+            'id',
+            'created_at',
+            'updated_at',
+            'deleted_at',
+        ];
+
         $lines = [];
         foreach ($indexes as $index) {
             $fields = $index['fields'] ?? [];
@@ -1206,6 +1465,13 @@ PHP;
 
             $type = $index['type'] ?? 'index';
             $indexName = $index['name'] ?? '';
+
+            if ($type === 'fulltext') {
+                $fields = array_values(array_filter($fields, fn($f) => !in_array($f, $disallowedFulltextFields, true)));
+                if (empty($fields)) {
+                    continue;
+                }
+            }
 
             if (count($fields) === 1) {
                 // 单字段索引
@@ -1301,8 +1567,8 @@ TS;
         $parentStudly = Str::studly($parent);
 
         return <<<TS
-import { DEFAULT_LAYOUT } from '../base';
-import { AppRouteRecordRaw } from '../types';
+import { DEFAULT_LAYOUT } from './base';
+import { AppRouteRecordRaw } from './types';
 
 const {$name}Route: AppRouteRecordRaw = {
   path: '/{$parent}',
@@ -1336,7 +1602,7 @@ TS;
     /**
      * 生成插件 manifest（plugin.json）
      */
-    protected function generatePluginJson(string $plugin, string $pluginTitle, string $name, string $kebabName, string $icon): string
+    protected function generatePluginJson(string $plugin, string $pluginTitle, string $name, string $kebabName, string $icon, ?string $pluginUri = null, ?string $pluginComponent = null): string
     {
         $pluginSnake = Str::snake($plugin);
         $pluginStudly = Str::studly($pluginSnake);
@@ -1362,8 +1628,8 @@ TS;
                 [
                     'title' => "{$name}管理",
                     'icon' => $icon,
-                    'uri' => "admin/{$kebabName}",
-                    'component' => "{$pluginSnake}/{$kebabName}",
+                    'uri' => $pluginUri ?? "admin/{$kebabName}",
+                    'component' => $pluginComponent ?? "{$pluginSnake}/{$kebabName}",
                 ],
             ],
             'permissions' => [
@@ -1403,37 +1669,11 @@ TS;
 
 namespace Plugins\\{$pluginStudly}\\Providers;
 
-use Illuminate\\Support\\ServiceProvider;
+use Dabashan\\DbsAdmin\\Providers\\PluginBaseProvider;
 
-class PluginServiceProvider extends ServiceProvider
+class PluginServiceProvider extends PluginBaseProvider
 {
     protected string \$pluginName = '{$pluginSnake}';
-
-    public function register(): void
-    {
-        //
-    }
-
-    public function boot(): void
-    {
-        // 加载数据库迁移
-        \$migrationsPath = dirname(__DIR__) . '/database/migrations';
-        if (is_dir(\$migrationsPath)) {
-            \$this->loadMigrationsFrom(\$migrationsPath);
-        }
-
-        // 加载后台路由
-        \$adminRoutes = dirname(__DIR__) . '/Admin/routes.php';
-        if (file_exists(\$adminRoutes)) {
-            \$this->loadRoutesFrom(\$adminRoutes);
-        }
-
-        // 加载业务路由
-        \$httpRoutes = dirname(__DIR__) . '/Http/routes.php';
-        if (file_exists(\$httpRoutes)) {
-            \$this->loadRoutesFrom(\$httpRoutes);
-        }
-    }
 }
 PHP;
     }
@@ -2135,8 +2375,9 @@ TS;
             $files[] = "database/migrations/{$timestamp}_create_{$table}_table.php";
             $files[] = $this->getVuePath($parent, $kebabName, $type, $plugin);
             $files[] = $this->getRouterPath($parent, $kebabName, $type, $pluginKebab);
-            $files[] = "resource/views/{$parent}/{$kebabName}/locale/zh-CN.ts";
-            $files[] = "resource/views/{$parent}/{$kebabName}/locale/en-US.ts";
+            $localeDir = $parent ? "{$parent}/{$kebabName}" : $kebabName;
+            $files[] = "web/src/views/{$localeDir}/locale/zh-CN.ts";
+            $files[] = "web/src/views/{$localeDir}/locale/en-US.ts";
         }
 
         return $files;
@@ -2144,31 +2385,41 @@ TS;
 
     protected function getControllerPath(string $name, string $type, ?string $plugin): string
     {
-        return $type === 'plugin'
-            ? "plugins/" . Str::studly(Str::snake($plugin)) . "/Admin/Controllers/{$name}Controller.php"
-            : "app/Admin/Controllers/{$name}Controller.php";
+        if ($type === 'plugin') {
+            return "plugins/" . Str::studly(Str::snake($plugin)) . "/Admin/Controllers/{$name}Controller.php";
+        }
+        // 核心模块：文件名加 ad_ 前缀
+        return "app/Admin/Controllers/ad_{$name}Controller.php";
     }
 
     protected function getModelPath(string $name, string $type, ?string $plugin): string
     {
         $modelName = $type === 'plugin' ? $name : "Admin{$name}";
-        return $type === 'plugin'
-            ? "plugins/" . Str::studly(Str::snake($plugin)) . "/Models/{$modelName}.php"
-            : "app/Admin/Models/{$modelName}.php";
+        if ($type === 'plugin') {
+            return "plugins/" . Str::studly(Str::snake($plugin)) . "/Models/{$modelName}.php";
+        }
+        // 核心模块：文件名加 ad_ 前缀
+        return "app/Admin/Models/ad_{$modelName}.php";
     }
 
     protected function getVuePath(string $parent, string $kebabName, string $type, ?string $plugin): string
     {
-        return $type === 'plugin'
-            ? "plugins/" . Str::studly(Str::snake($plugin)) . "/resources/views/{$kebabName}/index.vue"
-            : "resource/views/{$parent}/{$kebabName}/index.vue";
+        if ($type === 'plugin') {
+            return "plugins/" . Str::studly(Str::snake($plugin)) . "/resources/views/{$kebabName}/index.vue";
+        }
+        // 核心模块：按路由层级组织视图目录
+        // parent="system", kebabName="user" → web/src/views/system/user/index.vue
+        // parent="" (顶级), kebabName="config" → web/src/views/config/index.vue
+        $dir = $parent ? "{$parent}/{$kebabName}" : $kebabName;
+        return "web/src/views/{$dir}/index.vue";
     }
 
     protected function getRouterPath(string $parent, string $kebabName, string $type, ?string $pluginKebab = null): string
     {
-        return $type === 'plugin'
-            ? "plugins/" . Str::studly($pluginKebab) . "/resources/routes/index.ts"
-            : "resource/routes/{$parent}-{$kebabName}.ts";
+        if ($type === 'plugin') {
+            return "plugins/" . Str::studly($pluginKebab) . "/resources/routes/index.ts";
+        }
+        return "web/src/router/routes/{$parent}-{$kebabName}.ts";
     }
 
     protected function formatDate(): string
@@ -2291,6 +2542,27 @@ TS;
             }
 
             $writtenFiles[] = $path;
+        }
+
+        // 插件模式：从附件库复制图标到插件目录
+        if ($isPlugin && $pluginInfo && !empty($config['plugin_icon_attachment_id'])) {
+            $iconDest = $pluginInfo['dir'] . '/resources/static/images/icon.png';
+            $iconDir = dirname($iconDest);
+            if (!is_dir($iconDir)) {
+                @mkdir($iconDir, 0755, true);
+            }
+            try {
+                $attachment = \App\Admin\Models\AdminAttachment::find($config['plugin_icon_attachment_id']);
+                if ($attachment && $attachment->path) {
+                    $disk = $attachment->driver === 'local' ? 'public' : $attachment->driver;
+                    $content = \Illuminate\Support\Facades\Storage::disk($disk)->get($attachment->path);
+                    if ($content !== null) {
+                        file_put_contents($iconDest, $content);
+                    }
+                }
+            } catch (\Exception) {
+                // 复制失败则静默跳过
+            }
         }
 
         // 插件模式：执行 composer dump-autoload 确保新类能被自动加载
@@ -2462,7 +2734,9 @@ TS;
         string $name,
         string $kebabName,
         string $icon,
-        ?string $existingRaw = null
+        ?string $existingRaw = null,
+        ?string $pluginUri = null,
+        ?string $pluginComponent = null
     ): string
     {
         $info = $this->pluginBaseInfo($plugin);
@@ -2491,12 +2765,12 @@ TS;
             $json = json_decode($existingRaw, true);
             if (is_array($json)) {
                 return json_encode(
-                    $this->mergePluginJsonArray($info, $json, $pluginTitle, $name, $kebabName, $icon),
+                    $this->mergePluginJsonArray($info, $json, $pluginTitle, $name, $kebabName, $icon, $pluginUri, $pluginComponent),
                     JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE
                 );
             }
             return json_encode(
-                $this->mergePluginJsonArray($info, $fallbackBaseJson(), $pluginTitle, $name, $kebabName, $icon),
+                $this->mergePluginJsonArray($info, $fallbackBaseJson(), $pluginTitle, $name, $kebabName, $icon, $pluginUri, $pluginComponent),
                 JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE
             );
         }
@@ -2527,14 +2801,14 @@ TS;
                             'menus' => $base['menus'] ?? [],
                             'permissions' => $base['permissions'] ?? [],
                         ];
-                        return $this->mergePluginJsonArray($info, $json, $pluginTitle, $name, $kebabName, $icon);
+                        return $this->mergePluginJsonArray($info, $json, $pluginTitle, $name, $kebabName, $icon, $pluginUri, $pluginComponent);
                     }
                 } catch (\Throwable) {
                     // ignore
                 }
             }
 
-            return $this->generatePluginJson($plugin, $pluginTitle ?? '', $name, $kebabName, $icon);
+            return $this->generatePluginJson($plugin, $pluginTitle ?? '', $name, $kebabName, $icon, $pluginUri, $pluginComponent);
         }
 
         $raw = file_get_contents($info['json_path']);
@@ -2543,7 +2817,7 @@ TS;
         }
         if (trim($raw) === '') {
             return json_encode(
-                $this->mergePluginJsonArray($info, $fallbackBaseJson(), $pluginTitle, $name, $kebabName, $icon),
+                $this->mergePluginJsonArray($info, $fallbackBaseJson(), $pluginTitle, $name, $kebabName, $icon, $pluginUri, $pluginComponent),
                 JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE
             );
         }
@@ -2551,13 +2825,13 @@ TS;
         $json = json_decode($raw, true);
         if (!is_array($json)) {
             return json_encode(
-                $this->mergePluginJsonArray($info, $fallbackBaseJson(), $pluginTitle, $name, $kebabName, $icon),
+                $this->mergePluginJsonArray($info, $fallbackBaseJson(), $pluginTitle, $name, $kebabName, $icon, $pluginUri, $pluginComponent),
                 JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE
             );
         }
 
         return json_encode(
-            $this->mergePluginJsonArray($info, $json, $pluginTitle, $name, $kebabName, $icon),
+            $this->mergePluginJsonArray($info, $json, $pluginTitle, $name, $kebabName, $icon, $pluginUri, $pluginComponent),
             JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE
         );
     }
@@ -2568,7 +2842,9 @@ TS;
         ?string $pluginTitle,
         string $name,
         string $kebabName,
-        string $icon
+        string $icon,
+        ?string $pluginUri = null,
+        ?string $pluginComponent = null
     ): array {
         $currentName = $json['name'] ?? $info['snake'];
         $pluginSnake = Str::snake($currentName);
@@ -2598,10 +2874,11 @@ TS;
 
         $this->syncPluginJsonFromFilesystem($info, $json, $icon);
 
-        $menuUri = "admin/{$kebabName}";
+        $menuUri = $pluginUri ?? "admin/{$kebabName}";
         $menuExists = false;
         foreach ($json['menus'] as $m) {
-            if (is_array($m) && ($m['uri'] ?? null) === $menuUri) {
+            $mUri = is_array($m) ? ($m['uri'] ?? null) : null;
+            if ($mUri !== null && ($mUri === $menuUri || $mUri === "admin/{$kebabName}")) {
                 $menuExists = true;
                 break;
             }
@@ -2611,7 +2888,7 @@ TS;
                 'title' => "{$name}管理",
                 'icon' => $icon,
                 'uri' => $menuUri,
-                'component' => "{$pluginSnake}/{$kebabName}",
+                'component' => $pluginComponent ?? "{$pluginSnake}/{$kebabName}",
             ];
         }
 

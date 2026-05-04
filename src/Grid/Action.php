@@ -85,6 +85,16 @@ class Action
         return $this;
     }
 
+    public function asyncModal(string $apiRoute = '', array $props = []): self
+    {
+        if ($apiRoute) {
+            $this->apiRoute($apiRoute);
+        }
+        $this->modal($props);
+        $this->extra(array_merge($this->extra, ['async' => true]));
+        return $this;
+    }
+
     /** 抽屉模式（Drawer，侧边滑出，适合详情/编辑） */
     public function drawer(array $props = []): self
     {

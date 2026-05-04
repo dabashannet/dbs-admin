@@ -100,8 +100,8 @@ class MakePluginCommand extends Command
         }
         $this->line("  <fg=green>✓</> resources/ （前端资源目录）");
 
-        // 8. 后端空目录
-        foreach (['Models', 'Services', 'Support', 'database/migrations', 'static'] as $dir) {
+        // 8. 后端空目录（Support/ 和 static/ 按需手动创建，不再默认生成）
+        foreach (['Models', 'Services', 'database/migrations'] as $dir) {
             $dirPath = "{$pluginPath}/{$dir}";
             if (!is_dir($dirPath)) {
                 mkdir($dirPath, 0755, true);

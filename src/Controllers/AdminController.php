@@ -84,7 +84,18 @@ abstract class AdminController extends Controller
 
     protected function detail($id): Show
     {
-        return Show::make($this->model::findOrFail($id));
+        $model = $this->model::findOrFail($id);
+        $show = Show::make($model);
+
+        // 默认生成全部可见字段（排除更新时间）
+        foreach (array_keys($model->toArray()) as $key) {
+            if ($key === 'updated_at') {
+                continue;
+            }
+            $show->text($key, $key);
+        }
+
+        return $show;
     }
 
     // ==================== CRUD 接口 ====================
@@ -93,6 +104,10 @@ abstract class AdminController extends Controller
     {
         $grid = $this->grid();
         $this->applyGridConfiguration($grid);
+
+        // 自动为"查看"操作注入 API 路由（从当前请求路径推导资源 base URL）
+        $grid->upgradeViewAction('/' . ltrim($request->path(), '/'));
+
         $data = $grid->resolve($request);
         // 附加 Session 通知
         $data['notifications'] = Notification::pull();
@@ -109,7 +124,7 @@ abstract class AdminController extends Controller
     public function store(Request $request)
     {
         $form = $this->form();
-        $data = $form->validate($request, 'create');
+        $data = $this->normalizeFormData($form, $form->validate($request, 'create'), 'create');
         try {
             $model = $this->model::create($data);
             $this->afterSave($request, $model);
@@ -121,9 +136,10 @@ abstract class AdminController extends Controller
 
     public function show($id)
     {
+        $detail = $this->detail($id);
         return $this->success([
-            'data' => $this->detail($id)->toArray(),
-            'schema' => $this->detail($id)->schema(),
+            'data' => $detail->toArray(),
+            'schema' => $detail->schema(),
         ]);
     }
 
@@ -131,7 +147,7 @@ abstract class AdminController extends Controller
     {
         $instance = $this->model::findOrFail($id);
         $form = $this->form();
-        $data = $form->validate($request, 'update');
+        $data = $this->normalizeFormData($form, $form->validate($request, 'update'), 'update');
         try {
             $instance->update($data);
             $this->afterSave($request, $instance);
@@ -139,6 +155,81 @@ abstract class AdminController extends Controller
         } catch (\Illuminate\Database\QueryException $e) {
             return $this->fail('数据更新失败: ' . $this->formatDbError($e), 422);
         }
+    }
+
+    protected function normalizeFormData(Form $form, array $data, string $context): array
+    {
+        try {
+            $casts = [];
+            try {
+                $instance = new $this->model;
+                if ($instance instanceof \Illuminate\Database\Eloquent\Model) {
+                    $casts = $instance->getCasts();
+                }
+            } catch (\Throwable $e) {
+                $casts = [];
+            }
+
+            $schema = $form->schema($context);
+            $fields = $schema['fields'] ?? [];
+            foreach ($fields as $f) {
+                $key = $f['key'] ?? null;
+                if (!is_string($key) || $key === '' || !array_key_exists($key, $data)) {
+                    continue;
+                }
+                $type = $f['type'] ?? null;
+                $isArrayField = in_array($type, ['images', 'files', 'checkbox', 'keyValue', 'repeater'], true);
+                $value = $data[$key];
+
+                $cast = (string) ($casts[$key] ?? '');
+                $wantsArray = $cast !== '' && preg_match('/(array|json|collection|object)/i', $cast);
+
+                if (is_string($value)) {
+                    $value = trim($value);
+                    if ($value !== '' && preg_match('#^https?://#i', $value)) {
+                        $value = rtrim($value, ", \t\n\r\0\x0B");
+                    }
+                    if ($isArrayField) {
+                        if ($value === '') {
+                            $value = [];
+                        } else {
+                            $decoded = json_decode($value, true);
+                            if (is_array($decoded)) {
+                                $value = $decoded;
+                            } else {
+                                $parts = array_values(array_filter(array_map('trim', explode(',', $value)), fn($v) => $v !== ''));
+                                $value = $parts;
+                            }
+                        }
+                    }
+                }
+
+                if (is_array($value)) {
+                    $value = array_values(array_filter(array_map(function ($v) {
+                        if (is_string($v)) {
+                            $v = trim($v);
+                            if ($v !== '' && preg_match('#^https?://#i', $v)) {
+                                $v = rtrim($v, ", \t\n\r\0\x0B");
+                            }
+                        }
+                        return $v;
+                    }, $value), fn($v) => $v !== null && $v !== '' && $v !== []));
+
+                    if ($wantsArray) {
+                        $data[$key] = $value;
+                    } else {
+                        $data[$key] = json_encode($value, JSON_UNESCAPED_UNICODE);
+                    }
+                    continue;
+                }
+
+                $data[$key] = $value;
+            }
+        } catch (\Throwable $e) {
+            return $data;
+        }
+
+        return $data;
     }
 
     public function destroy($id)
@@ -153,14 +244,20 @@ abstract class AdminController extends Controller
         $count = count($ids);
         $model = new $this->model;
 
-        // 支持软删除的模型使用软删除
-        if (method_exists($model, 'bootSoftDeletes')) {
+        // 检测模型是否使用了 SoftDeletes 软删除
+        $usesSoftDeletes = in_array(
+            \Illuminate\Database\Eloquent\SoftDeletes::class,
+            class_uses_recursive($model)
+        );
+
+        if ($usesSoftDeletes) {
             $this->model::destroy($ids);
-        } else {
-            $this->model::destroy($ids);
+            return $this->success([], "已软删除 {$count} 条记录");
         }
 
-        return $this->success([], "已删除 {$count} 条记录");
+        $this->model::whereIn('id', $ids)->forceDelete();
+
+        return $this->success([], "已永久删除 {$count} 条记录");
     }
 
     // ==================== Schema 接口 ====================
@@ -188,6 +285,12 @@ abstract class AdminController extends Controller
     {
         $grid = $this->grid();
         $this->applyGridConfiguration($grid);
+
+        // 自动推导资源 base URL（去除 /grid-meta 后缀）
+        $path = '/' . ltrim(request()->path(), '/');
+        $path = preg_replace('#/grid-meta$#', '', $path);
+        $grid->upgradeViewAction($path);
+
         return $this->success([
             'columns' => $grid->getColumns(),
             'filters' => $grid->getFilters(),

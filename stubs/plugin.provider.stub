@@ -2,37 +2,9 @@
 
 namespace Plugins\{{ pluginStudly }}\Providers;
 
-use Illuminate\Support\ServiceProvider;
+use Dabashan\DbsAdmin\Providers\PluginBaseProvider;
 
-class PluginServiceProvider extends ServiceProvider
+class PluginServiceProvider extends PluginBaseProvider
 {
     protected string $pluginName = '{{ pluginName }}';
-
-    public function register(): void
-    {
-        // 插件注册逻辑（按需扩展）
-    }
-
-    public function boot(): void
-    {
-        $basePath = dirname(__DIR__);
-
-        // 加载迁移
-        $migrationsPath = $basePath . '/database/migrations';
-        if (is_dir($migrationsPath)) {
-            $this->loadMigrationsFrom($migrationsPath);
-        }
-
-        // 加载后台路由
-        $adminRoutes = $basePath . '/Admin/routes.php';
-        if (file_exists($adminRoutes)) {
-            $this->loadRoutesFrom($adminRoutes);
-        }
-
-        // 加载业务路由
-        $httpRoutes = $basePath . '/Http/routes.php';
-        if (file_exists($httpRoutes)) {
-            $this->loadRoutesFrom($httpRoutes);
-        }
-    }
 }

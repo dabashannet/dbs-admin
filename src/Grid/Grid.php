@@ -271,12 +271,35 @@ class Grid
 
     /**
      * 快捷方法：行查看操作（弹窗模式）
+     *
+     * @param string $label 按钮文字
+     * @param string|null $apiRoute 查看详情 API 路由（如 '/plugin/xiangjingli/admin/user'），前端会自动拼接记录ID
      */
-    public function viewAction(string $label = '查看'): self
+    public function viewAction(string $label = '查看', ?string $apiRoute = null): self
     {
-        $this->actions[] = Action::make('view', $label)
-            ->row()
-            ->modal(['width' => 700]);
+        $action = Action::make('view', $label)->row();
+        if ($apiRoute) {
+            $action->asyncModal($apiRoute, ['width' => 700]);
+        } else {
+            $action->modal(['width' => 700]);
+        }
+        $this->actions[] = $action;
+        return $this;
+    }
+
+    /**
+     * 将"查看"操作升级为异步弹窗（自动从请求路径推导 API 路由）
+     */
+    public function upgradeViewAction(string $basePath): self
+    {
+        foreach ($this->actions as $action) {
+            if ($action instanceof Action) {
+                $arr = $action->toArray();
+                if (($arr['key'] ?? '') === 'view') {
+                    $action->asyncModal($basePath, ['width' => 700]);
+                }
+            }
+        }
         return $this;
     }
 
@@ -474,7 +497,7 @@ class Grid
             }
 
             return [
-                'columns' => array_map(fn(Column $c) => $c->toArray(), $this->columns),
+                'columns' => $this->columnsToArray(),
                 'filters' => array_map(fn(Filter $f) => $f->toArray(), $this->filters),
                 'filter_layout' => $this->filterLayout,
                 'items' => $items,
@@ -501,7 +524,7 @@ class Grid
         }
 
         return [
-            'columns' => array_map(fn(Column $c) => $c->toArray(), $this->columns),
+            'columns' => $this->columnsToArray(),
             'filters' => array_map(fn(Filter $f) => $f->toArray(), $this->filters),
             'filter_layout' => $this->filterLayout,
             'items' => $items,
@@ -537,9 +560,40 @@ class Grid
 
     // ==================== 元数据获取 ====================
 
+    protected function columnsToArray(): array
+    {
+        $model = $this->query->getModel();
+        $modelClass = is_object($model) ? $model::class : null;
+        $hasOptions = $modelClass && method_exists($modelClass, 'options');
+
+        return array_map(function (Column $c) use ($hasOptions, $modelClass) {
+            $arr = $c->toArray();
+            if (!$hasOptions) {
+                return $arr;
+            }
+            $key = $arr['key'] ?? null;
+            if (!is_string($key) || $key === '') {
+                return $arr;
+            }
+            $opts = $modelClass::options($key);
+            if (!is_array($opts) || empty($opts)) {
+                return $arr;
+            }
+            $displayOptions = $arr['displayOptions'] ?? [];
+            if (!is_array($displayOptions)) {
+                $displayOptions = [];
+            }
+            if (!isset($displayOptions['options']) || empty($displayOptions['options'])) {
+                $displayOptions['options'] = $opts;
+                $arr['displayOptions'] = $displayOptions;
+            }
+            return $arr;
+        }, $this->columns);
+    }
+
     public function getColumns(): array
     {
-        return array_map(fn(Column $c) => $c->toArray(), $this->columns);
+        return $this->columnsToArray();
     }
 
     public function getFilters(): array

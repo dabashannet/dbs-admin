@@ -87,18 +87,31 @@ class MakePluginCommand extends Command
         );
         $this->line("  <fg=green>✓</> Http/routes.php");
 
-        // 7. 前端资源目录（自包含）
+        // 7. 前端资源目录 + 文件
         foreach ([
             'resources/views',
+            'resources/locale',
             'resources/routes',
-            'resources/static/images',
+            'resources/static/images'
         ] as $dir) {
             $dirPath = "{$pluginPath}/{$dir}";
             if (!is_dir($dirPath)) {
                 mkdir($dirPath, 0755, true);
             }
         }
-        $this->line("  <fg=green>✓</> resources/ （前端资源目录）");
+        $this->line("  <fg=green>✓</> resources/views/ （Vue 页面组件）");
+        $this->line("  <fg=green>✓</> resources/locale/ （语言包）");
+        $this->line("  <fg=green>✓</> resources/routes/ （前端路由）");
+        $this->line("  <fg=green>✓</> resources/static/ （静态资源）");
+
+        // 生成 Vue 首页组件
+        $this->generateVueIndex("{$pluginPath}/resources/views/index.vue", $name, $studlyName, $kebabName);
+        $this->line("  <fg=green>✓</> resources/views/index.vue （插件首页）");
+
+        // 生成语言包
+        $this->generateLocale("{$pluginPath}/resources/locale/zh-CN.ts", $name, $studlyName, 'zh-CN');
+        $this->generateLocale("{$pluginPath}/resources/locale/en-US.ts", $name, $studlyName, 'en-US');
+        $this->line("  <fg=green>✓</> resources/locale/zh-CN.ts / en-US.ts （语言包）");
 
         // 8. 后端空目录（Support/ 和 static/ 按需手动创建，不再默认生成）
         foreach (['Models', 'Services', 'database/migrations'] as $dir) {
@@ -128,5 +141,57 @@ class MakePluginCommand extends Command
         $this->line("  5. 使用 make:plugin-page 添加页面");
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * 生成 Vue 首页组件
+     */
+    protected function generateVueIndex(string $path, string $name, string $studlyName, string $kebabName): void
+    {
+        $dir = dirname($path);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        $content = <<<VUE
+<template>
+  <div class="plugin-{$name}">
+    <a-card>
+      <a-result status="success" title="{$studlyName} 插件已就绪">
+        <template #subtitle>
+          编辑 <code>resources/views/index.vue</code> 定制此页面
+        </template>
+      </a-result>
+    </a-card>
+  </div>
+</template>
+
+<script lang="ts" setup>
+// 插件首页组件 — 按需修改
+</script>
+
+<style scoped>
+.plugin-{$name} { padding: 24px; }
+</style>
+VUE;
+        $this->writeFile($path, $content);
+    }
+
+    /**
+     * 生成语言包文件
+     */
+    protected function generateLocale(string $path, string $name, string $studlyName, string $locale): void
+    {
+        $dir = dirname($path);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        $content = <<<TS
+export default {
+  'menu.plugin.{$name}': '{$studlyName}',
+};
+TS;
+        $this->writeFile($path, $content);
     }
 }

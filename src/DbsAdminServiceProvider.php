@@ -1,28 +1,30 @@
 <?php
+/*
+ * @Author:  lvtu@dabashan.cc
+ * @Date: 2026-05-08 21:42:20
+ * @LastEditTime: 2026-05-08 21:44:11
+ * Copyright (c) 2025 by Dabashan.cc, All Rights Reserved.
+ */
+
 
 namespace Dabashan\DbsAdmin;
 
-use Illuminate\Support\Facades\Route;
-use Illuminate\Support\ServiceProvider;
 use Dabashan\DbsAdmin\Commands\MakeAdminCommand;
 use Dabashan\DbsAdmin\Commands\MakePluginCommand;
 use Dabashan\DbsAdmin\Commands\MakePluginPageCommand;
 use Dabashan\DbsAdmin\Controllers\CodeGeneratorController;
 use Dabashan\DbsAdmin\Controllers\TaskController;
+use Dabashan\DbsAdmin\Services\PluginService;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\ServiceProvider;
 
 class DbsAdminServiceProvider extends ServiceProvider
 {
-    /**
-     * Register any application services.
-     */
     public function register(): void
     {
-        //
+        $this->app->singleton(PluginService::class);
     }
 
-    /**
-     * Bootstrap any application services.
-     */
     public function boot(): void
     {
         if ($this->app->runningInConsole()) {

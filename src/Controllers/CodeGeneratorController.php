@@ -1,4 +1,11 @@
 <?php
+/*
+ * @Author:  lvtu@dabashan.cc
+ * @Date: 2026-05-08 21:42:20
+ * @LastEditTime: 2026-05-08 21:42:20
+ * Copyright (c) 2025 by Dabashan.cc, All Rights Reserved.
+ */
+
 
 namespace Dabashan\DbsAdmin\Controllers;
 
@@ -73,9 +80,9 @@ class CodeGeneratorController extends AdminController
         $plugins = [];
 
         // 1. 从数据库读取已安装的插件
-        if (class_exists('\App\Admin\Models\Plugin')) {
+        if (class_exists('\Dabashan\DbsAdmin\Models\Plugin')) {
             try {
-                $dbPlugins = \App\Admin\Models\Plugin::all();
+                $dbPlugins = \Dabashan\DbsAdmin\Models\Plugin::all();
                 foreach ($dbPlugins as $record) {
                     $plugins[$record->name] = [
                         'name' => $record->name,
@@ -131,9 +138,9 @@ class CodeGeneratorController extends AdminController
         $names = [];
 
         // 1. 从数据库获取已安装的插件
-        if (class_exists('\App\Admin\Models\Plugin')) {
+        if (class_exists('\Dabashan\DbsAdmin\Models\Plugin')) {
             try {
-                $dbPlugins = \App\Admin\Models\Plugin::all();
+                $dbPlugins = \Dabashan\DbsAdmin\Models\Plugin::all();
                 foreach ($dbPlugins as $record) {
                     $names[] = Str::kebab($record->name);
                 }
@@ -713,7 +720,7 @@ class CodeGeneratorController extends AdminController
 
         $modelNamespace = $type === 'plugin'
             ? "Plugins\\{$pluginStudly}\\Models\\{$modelName}"
-            : "App\\Admin\\Models\\{$modelName}";
+            : "App\\Models\\{$modelName}";
 
         $gridColumnsCode = $this->formatGridColumns($gridColumns, $fields, $modelName);
         $formFieldsCode = $this->formFields($fields, $modelName);
@@ -1254,7 +1261,7 @@ PHP;
     protected function generateModelCode(string $modelName, string $tableName, array $fillable, string $type, ?string $plugin = null, array $fields = [], array $filters = []): string
     {
         $pluginStudly = $plugin ? Str::studly($plugin) : null;
-        $namespace = $type === 'plugin' ? "Plugins\\{$pluginStudly}\\Models" : 'App\\Admin\\Models';
+        $namespace = $type === 'plugin' ? "Plugins\\{$pluginStudly}\\Models" : 'App\\Models';
         $fillable = array_values(array_filter($fillable, fn($k) => is_string($k) && $k !== '' && !in_array($k, ['id', 'created_at', 'updated_at', 'deleted_at'], true)));
         $fillableCode = empty($fillable) ? '//' : "'" . implode("',\n        '", $fillable) . "',";
         $baseModel = $type === 'plugin' ? '\\Illuminate\\Database\\Eloquent\\Model' : '\\Dabashan\\DbsAdmin\\Models\\BaseAdminModel';
@@ -2399,7 +2406,7 @@ TS;
             return "plugins/" . Str::studly(Str::snake($plugin)) . "/Models/{$modelName}.php";
         }
         // 核心模块：文件名加 ad_ 前缀
-        return "app/Admin/Models/ad_{$modelName}.php";
+        return "app/Models/{$modelName}.php";
     }
 
     protected function getVuePath(string $parent, string $kebabName, string $type, ?string $plugin): string
@@ -2552,7 +2559,7 @@ TS;
                 @mkdir($iconDir, 0755, true);
             }
             try {
-                $attachment = \App\Admin\Models\AdminAttachment::find($config['plugin_icon_attachment_id']);
+                $attachment = \Dabashan\DbsAdmin\Models\AdminAttachment::find($config['plugin_icon_attachment_id']);
                 if ($attachment && $attachment->path) {
                     $disk = $attachment->driver === 'local' ? 'public' : $attachment->driver;
                     $content = \Illuminate\Support\Facades\Storage::disk($disk)->get($attachment->path);
@@ -2590,8 +2597,8 @@ TS;
         $deletedFiles = [];
 
         // 安全检查：如果插件已安装，阻止删除
-        if (class_exists('\App\Admin\Models\Plugin')) {
-            $existing = \App\Admin\Models\Plugin::where('name', $pluginStudly)->first();
+        if (class_exists('\Dabashan\DbsAdmin\Models\Plugin')) {
+            $existing = \Dabashan\DbsAdmin\Models\Plugin::where('name', $pluginStudly)->first();
             if ($existing) {
                 throw new \Exception('该插件已安装（名称：' . $existing->title . '），请先在插件管理中卸载后再删除代码');
             }
@@ -2776,9 +2783,9 @@ TS;
         }
 
         if (!file_exists($info['json_path'])) {
-            if (class_exists('\App\Admin\Models\Plugin')) {
+            if (class_exists('\Dabashan\DbsAdmin\Models\Plugin')) {
                 try {
-                    $record = \App\Admin\Models\Plugin::where('name', $info['snake'])
+                    $record = \Dabashan\DbsAdmin\Models\Plugin::where('name', $info['snake'])
                         ->orWhere('name', $info['studly'])
                         ->first();
                     if ($record) {

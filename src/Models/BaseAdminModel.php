@@ -1,14 +1,23 @@
 <?php
+/*
+ * @Author:  lvtu@dabashan.cc
+ * @Date: 2026-05-08 21:42:20
+ * @LastEditTime: 2026-05-08 21:42:20
+ * Copyright (c) 2025 by Dabashan.cc, All Rights Reserved.
+ */
+
 
 namespace Dabashan\DbsAdmin\Models;
 
+use DateTimeInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 /**
  * 后台管理模型基类
  *
- * 提供通用的查询作用域和基础配置，所有后台管理相关的非认证模型应继承此类。
+ * 提供通用的查询作用域、日期序列化和基础配置。
+ * 所有后台管理相关的非认证模型应继承此类。
  * 认证相关模型（如 AdminUser）因需继承 Authenticatable，不继承此类但应保持一致的风格。
  *
  * @method static Builder latestFirst() 按创建时间倒序排列
@@ -23,6 +32,14 @@ abstract class BaseAdminModel extends Model
      * @var array
      */
     protected $guarded = [];
+
+    /**
+     * 全局日期序列化格式：Y-m-d H:i:s
+     */
+    protected function serializeDate(DateTimeInterface $date): string
+    {
+        return $date->format('Y-m-d H:i:s');
+    }
 
     /**
      * 按创建时间倒序排列

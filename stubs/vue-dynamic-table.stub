@@ -26,14 +26,14 @@
               allow-clear
               @press-enter="handleSearch"
             />
-            <!-- 下拉选择/精确匹配 -->
+            <!-- 下拉选择/精确匹配（单选自动添加"全部"选项） -->
             <a-select
               v-else-if="filter.type === 'select' || filter.type === 'equal'"
               v-model="filterValues[filter.key]"
               :placeholder="filter.placeholder || `选择${filter.title}`"
               allow-clear
               :multiple="filter.multiple"
-              :options="filter.options ? Object.entries(filter.options).map(([v, l]) => ({ value: v, label: l })) : []"
+              :options="getFilterOptions(filter)"
               @change="handleSearch"
             />
             <!-- 日期区间 -->
@@ -71,7 +71,7 @@
               :placeholder="filter.placeholder || `选择${filter.title}`"
               allow-clear
               multiple
-              :options="filter.options ? Object.entries(filter.options).map(([v, l]) => ({ value: v, label: l })) : []"
+              :options="getFilterOptions(filter)"
               @change="handleSearch"
             />
             <!-- 默认输入框 -->
@@ -892,6 +892,17 @@
   };
 
   // ====== 辅助方法 ======
+  /** 获取筛选下拉选项（单选自动添加"全部"选项） */
+  const getFilterOptions = (filter: any) => {
+    if (!filter.options) return [];
+    const options = Object.entries(filter.options).map(([v, l]) => ({ value: v, label: l }));
+    // 单选下拉框自动在顶部添加"全部"选项，值空字符串表示不筛选
+    if ((filter.type === 'select' || filter.type === 'equal') && !filter.multiple) {
+      return [{ value: '', label: '全部' }, ...options];
+    }
+    return options;
+  };
+
   const getBadgeColor = (value: any, col: any) => {
     const colors = col._displayOptions?.colors || {};
     return colors[String(value)] || 'gray';

@@ -10,14 +10,12 @@
 namespace Dabashan\DbsAdmin\Models;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Hash;
-use DateTimeInterface;
 use Laravel\Sanctum\HasApiTokens;
-use Illuminate\Database\Eloquent\Casts\Attribute;
 
 /**
  * 后台管理员用户模型
@@ -41,7 +39,7 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
  * @method static Builder active() 筛选启用状态的用户
  * @method static Builder byUsername(string $username) 按用户名筛选
  */
-class AdminUser extends Authenticatable
+class AdminUser extends BaseAuthenticatable
 {
     use HasApiTokens, Notifiable;
 
@@ -63,14 +61,6 @@ class AdminUser extends Authenticatable
     protected $casts = [
         'status' => 'boolean',
     ];
-
-    /**
-     * 全局日期序列化格式：Y-m-d H:i:s
-     */
-    protected function serializeDate(DateTimeInterface $date): string
-    {
-        return $date->format('Y-m-d H:i:s');
-    }
 
     /**
      * 密码自动加密

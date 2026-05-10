@@ -29,6 +29,7 @@ class PaymentConfig extends BaseAdminModel
     const CHANNEL_STRIPE = 'stripe';
     const CHANNEL_JSB = 'jsb';
     const CHANNEL_BALANCE = 'balance';
+    const CHANNEL_WECHAT_VIRTUAL = 'wechat_virtual';
 
     const CHANNELS = [
         self::CHANNEL_WECHAT => '微信支付',
@@ -39,6 +40,7 @@ class PaymentConfig extends BaseAdminModel
         self::CHANNEL_STRIPE => 'Stripe',
         self::CHANNEL_JSB => '江苏银行',
         self::CHANNEL_BALANCE => '余额支付',
+        self::CHANNEL_WECHAT_VIRTUAL => '微信虚拟支付',
     ];
 
     const MODE_NORMAL = 'normal';

@@ -6,7 +6,7 @@
 <template>
   <div class="dynamic-table">
     <!-- 筛选器区域 -->
-    <a-card v-if="filters.length > 0" class="filter-card" :bordered="false" style="margin-bottom: 16px">
+    <a-card v-if="filters.length > 0" class="filter-card" :bordered="false" style="margin-bottom: 12px">
       <a-row :gutter="16">
         <a-col
           v-for="filter in filters"
@@ -99,8 +99,10 @@
       </a-row>
     </a-card>
 
-    <!-- 操作栏 -->
-    <a-row style="margin-bottom: 16px" :gutter="16">
+    <!-- 表格卡片 -->
+    <a-card class="general-card" :bordered="false">
+      <!-- 操作栏 -->
+      <a-row style="margin-bottom: 12px" :gutter="16">
       <a-col :span="12">
         <a-space>
           <slot name="toolbar-left" />
@@ -137,7 +139,7 @@
     </a-row>
 
     <!-- 批量操作栏（选中后显示） -->
-    <a-alert v-if="bulkActions.length > 0 && selectedRows.length > 0" style="margin-bottom: 16px">
+    <a-alert v-if="bulkActions.length > 0 && selectedRows.length > 0" style="margin-bottom: 12px">
       <template #title>
         已选中 {{ selectedRows.length }} 条记录
       </template>
@@ -306,6 +308,7 @@
         </a-space>
       </template>
     </a-table>
+    </a-card>
 
     <!-- ====== 操作弹窗 ====== -->
 

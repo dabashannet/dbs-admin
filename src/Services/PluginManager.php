@@ -50,7 +50,7 @@ class PluginManager
             return static::$plugins;
         }
 
-        $cached = Cache::get(self::CACHE_KEY_ALL);
+        $cached = static::cacheGet(self::CACHE_KEY_ALL);
         if ($cached !== null) {
             static::$plugins = $cached;
             return static::$plugins;
@@ -64,7 +64,7 @@ class PluginManager
 
         static::scanPluginsDirectory();
 
-        Cache::put(self::CACHE_KEY_ALL, static::$plugins, self::CACHE_TTL);
+        static::cachePut(self::CACHE_KEY_ALL, static::$plugins, self::CACHE_TTL);
 
         return static::$plugins;
     }
@@ -74,7 +74,7 @@ class PluginManager
      */
     public static function enabled(): array
     {
-        $cached = Cache::get(self::CACHE_KEY_ENABLED);
+        $cached = static::cacheGet(self::CACHE_KEY_ENABLED);
         if ($cached !== null) {
             return $cached;
         }
@@ -89,7 +89,7 @@ class PluginManager
                     ]);
                 }
 
-                Cache::put(self::CACHE_KEY_ENABLED, $plugins, self::CACHE_TTL);
+                static::cachePut(self::CACHE_KEY_ENABLED, $plugins, self::CACHE_TTL);
                 return $plugins;
             } catch (\Exception $e) {
                 // 回退到文件系统
@@ -98,7 +98,7 @@ class PluginManager
 
         $plugins = array_filter(static::all(), fn($p) => ($p['enabled'] ?? false) === true);
 
-        Cache::put(self::CACHE_KEY_ENABLED, $plugins, self::CACHE_TTL);
+        static::cachePut(self::CACHE_KEY_ENABLED, $plugins, self::CACHE_TTL);
         return $plugins;
     }
 
@@ -281,7 +281,34 @@ class PluginManager
     {
         static::$plugins = null;
         static::$tableExists = null;
-        Cache::forget(self::CACHE_KEY_ENABLED);
-        Cache::forget(self::CACHE_KEY_ALL);
+        static::cacheForget(self::CACHE_KEY_ENABLED);
+        static::cacheForget(self::CACHE_KEY_ALL);
+    }
+
+    protected static function cacheGet(string $key): mixed
+    {
+        try {
+            return Cache::get($key);
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    protected static function cachePut(string $key, mixed $value, int $ttl): void
+    {
+        try {
+            Cache::put($key, $value, $ttl);
+        } catch (\Throwable $e) {
+            //
+        }
+    }
+
+    protected static function cacheForget(string $key): void
+    {
+        try {
+            Cache::forget($key);
+        } catch (\Throwable $e) {
+            //
+        }
     }
 }

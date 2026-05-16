@@ -9,6 +9,7 @@
 
 namespace Dabashan\DbsAdmin\Providers;
 
+use Dabashan\DbsAdmin\Models\Plugin;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 
@@ -41,6 +42,11 @@ abstract class PluginBaseProvider extends ServiceProvider
             return;
         }
 
+        if (!$this->passesInstallationCheck()) {
+            logger()->warning("插件 {$this->pluginName} 安装校验失败，已拒绝注册路由");
+            return;
+        }
+
         $pluginDir = $this->pluginDir();
 
         // 路由加载（所有请求）
@@ -58,7 +64,39 @@ abstract class PluginBaseProvider extends ServiceProvider
      */
     protected function pluginDir(): string
     {
+        $exactPath = base_path('plugins/' . $this->pluginName);
+        if (is_dir($exactPath)) {
+            return $exactPath;
+        }
+
+        $registryPath = public_path('vendor/dbs-plugins/registry.json');
+        if (is_file($registryPath)) {
+            $registry = json_decode((string) file_get_contents($registryPath), true);
+            $version = $registry['plugins'][$this->pluginName]['version'] ?? null;
+            if (is_string($version) && $version !== '') {
+                $runtimePath = public_path("vendor/dbs-plugins/{$this->pluginName}/{$version}");
+                if (is_dir($runtimePath)) {
+                    return $runtimePath;
+                }
+            }
+        }
+
         return base_path('plugins/' . Str::studly($this->pluginName));
+    }
+
+    protected function passesInstallationCheck(): bool
+    {
+        try {
+            $plugin = Plugin::query()->where('name', $this->pluginName)->first();
+            if (!$plugin || $plugin->type !== 'cloud') {
+                return true;
+            }
+
+            return $plugin->isValidInstallation();
+        } catch (\Throwable $e) {
+            logger()->warning("插件 {$this->pluginName} 安装校验异常: {$e->getMessage()}");
+            return false;
+        }
     }
 
     /**

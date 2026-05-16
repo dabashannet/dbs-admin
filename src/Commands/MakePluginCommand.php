@@ -27,7 +27,7 @@ class MakePluginCommand extends Command
         $name = Str::snake($this->argument('name'));
         $studlyName = Str::studly($name);
         $kebabName = Str::kebab($name);
-        $pluginPath = base_path("plugins/{$studlyName}");
+        $pluginPath = base_path("plugins/{$name}");
 
         if (is_dir($pluginPath) && !$this->option('force')) {
             $this->error("插件目录已存在：{$pluginPath}");
@@ -45,13 +45,13 @@ class MakePluginCommand extends Command
         $this->info("正在创建插件 [{$name}]...");
         $this->newLine();
 
-        // 1. plugin.json
+        // 1. manifest.json
         $this->generateFile(
-            "{$pluginPath}/plugin.json",
-            'plugin.json.stub',
+            "{$pluginPath}/manifest.json",
+            'manifest.json.stub',
             $replacements
         );
-        $this->line("  <fg=green>✓</> plugin.json");
+        $this->line("  <fg=green>✓</> manifest.json");
 
         // 2. ServiceProvider
         $this->generateFile(
@@ -97,7 +97,6 @@ class MakePluginCommand extends Command
         foreach ([
             'resources/views',
             'resources/locale',
-            'resources/routes',
             'resources/static/images'
         ] as $dir) {
             $dirPath = "{$pluginPath}/{$dir}";
@@ -107,7 +106,6 @@ class MakePluginCommand extends Command
         }
         $this->line("  <fg=green>✓</> resources/views/ （Vue 页面组件）");
         $this->line("  <fg=green>✓</> resources/locale/ （语言包）");
-        $this->line("  <fg=green>✓</> resources/routes/ （前端路由）");
         $this->line("  <fg=green>✓</> resources/static/ （静态资源）");
 
         // 生成 Vue 首页组件
@@ -140,7 +138,7 @@ class MakePluginCommand extends Command
         $this->line("  前端资源：{$pluginPath}/resources/");
         $this->newLine();
         $this->warn("后续步骤：");
-        $this->line("  1. 编辑 plugin.json 完善插件信息");
+        $this->line("  1. 编辑 manifest.json 完善插件信息");
         $this->line("  2. 将 enabled 设为 true");
         $this->line("  3. 运行 composer dump-autoload");
         $this->line("  4. 如有迁移文件：php artisan migrate");

@@ -1,0 +1,38 @@
+{
+  "name": "{{ pluginName }}",
+  "title": "{{ pluginTitle }} 插件",
+  "description": "{{ pluginTitle }} 插件描述",
+  "version": "1.0.0",
+  "author": "DbsAdmin",
+  "enabled": true,
+  "icon": "icon-apps",
+  "type": "local",
+  "framework": "dbs-plugin-runtime",
+  "min_framework_version": "2.0.0",
+  "show_api": true,
+  "providers": [
+    "Plugins\\{{ pluginName }}\\Providers\\PluginServiceProvider"
+  ],
+  "admin_controllers": [
+    "Plugins\\{{ pluginName }}\\Admin\\Controllers\\{{ pluginStudly }}Controller"
+  ],
+  "menus": [
+    {
+      "title": "{{ pluginTitle }}",
+      "icon": "icon-apps",
+      "uri": "admin",
+      "component": "{{ pluginName }}/index"
+    }
+  ],
+  "permissions": [
+    {
+      "slug": "{{ pluginName }}.view",
+      "name": "{{ pluginTitle }} 查看",
+      "http_method": [],
+      "http_path": "/plugin/{{ pluginName }}/admin/*"
+    }
+  ],
+  "frontend_entry": "assets/{{ pluginName }}.js",
+  "frontend_css": "assets/{{ pluginName }}.css",
+  "requires_build": true
+}

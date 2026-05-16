@@ -50,7 +50,11 @@ class PluginRegistryGenerator
             }
             $studly = $studlyCache[$name];
 
-            $viewsDir = base_path("plugins/{$studly}/resources/views");
+            $pluginDir = base_path("plugins/{$name}");
+            if (!File::isDirectory($pluginDir)) {
+                $pluginDir = base_path("plugins/{$studly}");
+            }
+            $viewsDir = $pluginDir . '/resources/views';
             if (!File::isDirectory($viewsDir)) {
                 continue;
             }
@@ -65,7 +69,7 @@ class PluginRegistryGenerator
                 $key = substr($relativePath, 0, -4);
                 $key = str_replace('\\', '/', $key);
 
-                $importPath = '@plugins/' . $studly . '/resources/views/' . $relativePath;
+                $importPath = '@plugins/' . basename($pluginDir) . '/resources/views/' . $relativePath;
 
                 $entries[] = [
                     'key' => $name . ':' . $key,

@@ -175,7 +175,7 @@ class PluginController extends Controller
     public function syncPermissions(string $name)
     {
         $pluginPath = PluginManager::getPluginPath($name);
-        $jsonPath = $pluginPath . '/plugin.json';
+        $jsonPath = $pluginPath . '/manifest.json';
 
         $config = null;
         if (File::exists($jsonPath)) {

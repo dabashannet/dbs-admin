@@ -343,8 +343,13 @@ class PluginService
         $pluginStudly = Str::studly($pluginName);
         $pluginKebab = Str::kebab($pluginName);
 
-        $migrationsPath = base_path("plugins/{$pluginStudly}/database/migrations");
-        $migrationsPathArg = "plugins/{$pluginStudly}/database/migrations";
+        $migrationsPath = base_path("plugins/{$pluginName}/database/migrations");
+        $migrationsPathArg = "plugins/{$pluginName}/database/migrations";
+
+        if (!File::isDirectory($migrationsPath)) {
+            $migrationsPath = base_path("plugins/{$pluginStudly}/database/migrations");
+            $migrationsPathArg = "plugins/{$pluginStudly}/database/migrations";
+        }
 
         if (!File::isDirectory($migrationsPath)) {
             $migrationsPath = base_path("plugins/{$pluginKebab}/database/migrations");
@@ -574,8 +579,13 @@ class PluginService
         $pluginStudly = Str::studly($pluginName);
         $pluginKebab = Str::kebab($pluginName);
 
-        $migrationsPath = base_path("plugins/{$pluginStudly}/database/migrations");
-        $migrationsPathArg = "plugins/{$pluginStudly}/database/migrations";
+        $migrationsPath = base_path("plugins/{$pluginName}/database/migrations");
+        $migrationsPathArg = "plugins/{$pluginName}/database/migrations";
+
+        if (!File::isDirectory($migrationsPath)) {
+            $migrationsPath = base_path("plugins/{$pluginStudly}/database/migrations");
+            $migrationsPathArg = "plugins/{$pluginStudly}/database/migrations";
+        }
 
         if (!File::isDirectory($migrationsPath)) {
             $migrationsPath = base_path("plugins/{$pluginKebab}/database/migrations");
@@ -673,9 +683,8 @@ class PluginService
 
     protected function exportPluginJson(Plugin $plugin): void
     {
-        $studlyName = Str::studly($plugin->name);
-        $pluginPath = base_path("plugins/{$studlyName}");
-        $jsonPath = "{$pluginPath}/plugin.json";
+        $pluginPath = PluginManager::getPluginPath($plugin->name);
+        $jsonPath = "{$pluginPath}/manifest.json";
 
         if (!File::isDirectory($pluginPath)) {
             return;

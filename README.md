@@ -435,7 +435,7 @@ ActionGroup::make([...])->label('更多')->row()->modal()
 
 ```
 plugins/{PluginName}/                    # StudlyCase 命名
-├── plugin.json                          # 插件元信息
+├── manifest.json                        # 插件元信息
 ├── PluginServiceProvider.php            # 服务提供者
 ├── Admin/                               # 后台管理
 │   ├── Controllers/{Name}Controller.php
@@ -495,7 +495,7 @@ Vite 构建时自动扫描 `plugins/*/resources/routes/*.ts`，已安装插件�
 ### 插件生命周期
 
 插件安装流程（`PluginService::install()`）：
-1. 验证插件配置文件 `plugin.json`
+1. 验证插件配置文件 `manifest.json`
 2. 检查依赖是否满足
 3. 运行迁移
 4. 注册 ServiceProvider（Laravel 自动发现缓存）
@@ -580,7 +580,7 @@ php artisan make:plugin shop
 php artisan make:plugin demo_plugin --force  # 覆盖已有
 ```
 
-生成完整的插件目录结构，包括 ServiceProvider、plugin.json、路由文件、迁移目录等。
+生成完整的插件目录结构，包括 ServiceProvider、manifest.json、路由文件、迁移目录等。
 
 ### make:plugin-page — 在插件中创建页面
 
@@ -596,7 +596,7 @@ php artisan make:plugin-page shop order --admin        # 后台控制器
 
 ### PluginManager
 
-插件发现与状态管理核心服务。负责扫描 `plugins/` 目录、解析 `plugin.json`、管理启用/禁用状态、缓存插件元数据。
+插件发现与状态管理核心服务。负责扫描 `plugins/` 目录、解析 `manifest.json`、管理启用/禁用状态、缓存插件元数据。
 
 ```php
 use Dabashan\DbsAdmin\Services\PluginManager;
@@ -809,3 +809,10 @@ return $this->success($data, '操作成功');      // code=20000
 return $this->fail('参数错误', 40001);          // 业务错误
 return $this->error('服务器错误', 50001);       // 系统错误
 ```
+
+### 2026-05-15 插件运行迁移
+
+- `PluginManager` 支持读取 `public/vendor/dbs-plugins/registry.json`，并要求同目录 `registry.json.sig` 通过本机密钥验签后才合并商业插件运行信息。
+- `PluginBaseProvider` 在商业插件 boot 前调用 `Plugin::isValidInstallation()`，`installation_hash` 不匹配时拒绝注册路由。
+- `Plugin` 模型增加 `installation_hash`、`installed_at` 字段支持，用于 agent 安装记录自检。
+- 本地开发插件仍可使用 `plugins/{Name}`、`MakePluginCommand`、`PluginRegistryGenerator`；商业分发插件应由 `dbs-agent` 安装到 `public/vendor/dbs-plugins` 并通过 registry 加载。

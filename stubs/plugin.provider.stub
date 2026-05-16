@@ -1,6 +1,6 @@
 <?php
 
-namespace Plugins\{{ pluginStudly }}\Providers;
+namespace Plugins\{{ pluginName }}\Providers;
 
 use Dabashan\DbsAdmin\Providers\PluginBaseProvider;
 

@@ -10,6 +10,7 @@
 namespace Dabashan\DbsAdmin;
 
 use Dabashan\DbsAdmin\Commands\MakeAdminCommand;
+use Dabashan\DbsAdmin\Commands\PackagePluginCommand;
 use Dabashan\DbsAdmin\Commands\MakePluginCommand;
 use Dabashan\DbsAdmin\Commands\MakePluginPageCommand;
 use Dabashan\DbsAdmin\Controllers\CodeGeneratorController;
@@ -32,6 +33,7 @@ class DbsAdminServiceProvider extends ServiceProvider
                 MakeAdminCommand::class,
                 MakePluginCommand::class,
                 MakePluginPageCommand::class,
+                PackagePluginCommand::class,
             ]);
         }
 

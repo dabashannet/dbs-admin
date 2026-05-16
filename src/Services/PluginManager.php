@@ -62,6 +62,7 @@ class PluginManager
             static::$plugins = static::loadFromDatabase();
         }
 
+        static::loadFromRuntimeRegistry(static::$plugins, false);
         static::scanPluginsDirectory();
 
         static::cachePut(self::CACHE_KEY_ALL, static::$plugins, self::CACHE_TTL);
@@ -88,6 +89,8 @@ class PluginManager
                         'status' => 'enabled',
                     ]);
                 }
+
+                static::loadFromRuntimeRegistry($plugins, true);
 
                 static::cachePut(self::CACHE_KEY_ENABLED, $plugins, self::CACHE_TTL);
                 return $plugins;
@@ -122,6 +125,71 @@ class PluginManager
         return $plugins;
     }
 
+    protected static function loadFromRuntimeRegistry(array &$plugins, bool $enabledOnly): void
+    {
+        $registryPath = public_path('vendor/dbs-plugins/registry.json');
+        if (!File::exists($registryPath) || !static::verifyRuntimeRegistry($registryPath)) {
+            return;
+        }
+
+        $registry = json_decode(File::get($registryPath), true);
+        foreach (($registry['plugins'] ?? []) as $name => $entry) {
+            if ($enabledOnly && empty($entry['enabled'])) {
+                continue;
+            }
+
+            if (isset($plugins[$name])) {
+                $plugins[$name] = array_merge($plugins[$name], [
+                    'frontend' => $entry['frontend'] ?? null,
+                    'registry' => true,
+                    'runtime_path' => public_path('vendor/dbs-plugins/' . $name . '/' . ($entry['version'] ?? '')),
+                ]);
+                continue;
+            }
+
+            $plugins[$name] = [
+                'name' => $name,
+                'title' => $entry['name'] ?? $name,
+                'version' => $entry['version'] ?? '1.0.0',
+                'type' => 'cloud',
+                'enabled' => (bool) ($entry['enabled'] ?? false),
+                'installed' => true,
+                'status' => !empty($entry['enabled']) ? 'enabled' : 'disabled',
+                'menus' => $entry['menus'] ?? [],
+                'permissions' => $entry['permissions'] ?? [],
+                'providers' => $entry['providers'] ?? [],
+                'frontend' => $entry['frontend'] ?? null,
+                'registry' => true,
+                'path' => public_path('vendor/dbs-plugins/' . $name . '/' . ($entry['version'] ?? '')),
+                'runtime_path' => public_path('vendor/dbs-plugins/' . $name . '/' . ($entry['version'] ?? '')),
+            ];
+        }
+    }
+
+    protected static function verifyRuntimeRegistry(string $registryPath): bool
+    {
+        $sigPath = $registryPath . '.sig';
+        if (!File::exists($sigPath)) {
+            \Illuminate\Support\Facades\Log::warning('插件 registry.json.sig 不存在，已拒绝加载商业插件 registry');
+            return false;
+        }
+
+        $secret = (string) config('dbs_agent.site_secret', config('dbs_agent.token', ''));
+        if ($secret === '') {
+            \Illuminate\Support\Facades\Log::warning('缺少 registry 验签密钥，已拒绝加载商业插件 registry');
+            return false;
+        }
+
+        $mac = hash_hmac('sha256', File::get($registryPath), $secret);
+        $sig = trim(File::get($sigPath));
+        if (!hash_equals($mac, $sig)) {
+            \Illuminate\Support\Facades\Log::warning('插件 registry.json 签名校验失败，已拒绝加载商业插件 registry');
+            return false;
+        }
+
+        return true;
+    }
+
     /**
      * 扫描 plugins 目录，发现未安装的插件
      */
@@ -134,7 +202,7 @@ class PluginManager
         }
 
         foreach (File::directories($pluginsPath) as $dir) {
-            $jsonPath = $dir . '/plugin.json';
+            $jsonPath = static::findManifestPath($dir);
             if (!File::exists($jsonPath)) {
                 continue;
             }
@@ -152,7 +220,7 @@ class PluginManager
 
             $expectedDirName = Str::studly($pluginName);
             $actualDirName = basename($dir);
-            if ($expectedDirName !== $actualDirName) {
+            if ($expectedDirName !== $actualDirName && $pluginName !== $actualDirName) {
                 continue;
             }
 
@@ -195,11 +263,11 @@ class PluginManager
             $providerClass = $plugin['providers'][0];
             if (preg_match('/Plugins\\\\(.+)$/', $providerClass, $matches)) {
                 $relativePath = $matches[1];
-                $basePath = base_path('plugins');
-                $filePath = $basePath . '/' . str_replace('\\', '/', $relativePath) . '.php';
-                if (!file_exists($filePath)) {
+                $filePath = static::resolveProviderFilePath($plugin, $relativePath);
+                if (!$filePath) {
                     return null;
                 }
+                require_once $filePath;
             }
             return $providerClass;
         }
@@ -225,19 +293,26 @@ class PluginManager
      */
     public static function getPluginPath(string $name): string
     {
+        $exactPath = base_path('plugins/' . $name);
+        if (File::isDirectory($exactPath)) {
+            return $exactPath;
+        }
+
         return base_path('plugins/' . Str::studly($name));
     }
 
     /**
-     * 获取插件 JSON 配置路径
+     * 获取插件 manifest 配置路径
      */
     public static function getPluginJsonPath(string $name): string
     {
-        return static::getPluginPath($name) . '/plugin.json';
+        $pluginPath = static::getPluginPath($name);
+
+        return static::findManifestPath($pluginPath);
     }
 
     /**
-     * 读取插件 JSON 配置
+     * 读取插件 manifest 配置
      */
     public static function readPluginJson(string $name): ?array
     {
@@ -248,6 +323,37 @@ class PluginManager
 
         $config = json_decode(File::get($jsonPath), true);
         return $config && !empty($config['name']) ? $config : null;
+    }
+
+    protected static function findManifestPath(string $pluginPath): string
+    {
+        return rtrim($pluginPath, '/\\') . '/manifest.json';
+    }
+
+    protected static function resolveProviderFilePath(array $plugin, string $relativePath): ?string
+    {
+        $relative = str_replace('\\', '/', $relativePath) . '.php';
+        $pluginName = (string) ($plugin['name'] ?? '');
+        $candidates = [
+            base_path('plugins/' . $relative),
+        ];
+
+        if (!empty($plugin['runtime_path'])) {
+            $runtimeRelative = $relative;
+            $prefix = $pluginName !== '' ? $pluginName . '/' : '';
+            if ($prefix !== '' && str_starts_with($runtimeRelative, $prefix)) {
+                $runtimeRelative = substr($runtimeRelative, strlen($prefix));
+            }
+            $candidates[] = rtrim((string) $plugin['runtime_path'], '/\\') . '/' . $runtimeRelative;
+        }
+
+        foreach ($candidates as $candidate) {
+            if (file_exists($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     /**

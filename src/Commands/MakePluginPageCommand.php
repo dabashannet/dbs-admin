@@ -118,7 +118,7 @@ class MakePluginPageCommand extends Command
 
         $this->warn('后续步骤：');
         $this->line("  1. 在 plugins/{$pluginStudly}/{$controllerType}/routes.php 中注册路由");
-        $this->line("  2. 在 plugin.json 中配置菜单和权限");
+        $this->line("  2. 在 manifest.json 中配置菜单和权限");
         if ($this->option('vue')) {
             $this->line("  3. 在 plugins/{$pluginStudly}/resources/routes/ 中创建路由文件");
             $this->line("  4. Vite 构建时会自动发现插件路由");

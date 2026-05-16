@@ -105,7 +105,7 @@ class CodeGeneratorController extends AdminController
                 if ($dir === '.' || $dir === '..') {
                     continue;
                 }
-                $jsonPath = $pluginPath . '/' . $dir . '/plugin.json';
+                $jsonPath = $pluginPath . '/' . $dir . '/manifest.json';
                 if (file_exists($jsonPath)) {
                     $config = json_decode(file_get_contents($jsonPath), true);
                     if ($config && !empty($config['name'])) {
@@ -156,7 +156,7 @@ class CodeGeneratorController extends AdminController
                 if ($dir === '.' || $dir === '..') {
                     continue;
                 }
-                $jsonPath = $pluginPath . '/' . $dir . '/plugin.json';
+                $jsonPath = $pluginPath . '/' . $dir . '/manifest.json';
                 if (file_exists($jsonPath)) {
                     $config = json_decode(file_get_contents($jsonPath), true);
                     if ($config && !empty($config['name'])) {
@@ -180,8 +180,9 @@ class CodeGeneratorController extends AdminController
         return [
             'snake' => $pluginSnake,
             'studly' => $pluginStudly,
-            'dir' => base_path("plugins/{$pluginStudly}"),
-            'json_path' => base_path("plugins/{$pluginStudly}/plugin.json"),
+            'dir_name' => $pluginSnake,
+            'dir' => base_path("plugins/{$pluginSnake}"),
+            'json_path' => base_path("plugins/{$pluginSnake}/manifest.json"),
         ];
     }
 
@@ -514,8 +515,8 @@ class CodeGeneratorController extends AdminController
         $isNewPlugin = false;
         if ($config['type'] === 'plugin' && $plugin) {
             $info = $this->pluginBaseInfo($plugin);
-            $virtualPluginJsonKey = "plugins/{$info['studly']}/plugin.json";
-            $isNewPlugin = !file_exists($info['json_path']) && !array_key_exists($virtualPluginJsonKey, $virtualFiles);
+            $virtualManifestKey = "plugins/{$info['dir_name']}/manifest.json";
+            $isNewPlugin = !file_exists($info['json_path']) && !array_key_exists($virtualManifestKey, $virtualFiles);
         }
 
         // 生成 Controller 代码
@@ -559,39 +560,41 @@ class CodeGeneratorController extends AdminController
         // 插件模式额外处理
         $pluginFiles = [];
         if ($config['type'] === 'plugin' && $plugin) {
-            // 新插件才生成 plugin.json、ServiceProvider 等脚手架文件
+            $info = $this->pluginBaseInfo($plugin);
+            $pluginDirName = $info['dir_name'];
+
+            // 新插件才生成 manifest.json、ServiceProvider 等脚手架文件
             if ($isNewPlugin) {
                 $pluginTitle = $config['plugin_title'] ?? '';
-                $pluginStudly = Str::studly(Str::snake($plugin));
+                $pluginStudly = $info['studly'];
                 $pluginJson = $this->generatePluginJson($plugin, $pluginTitle, $name, $kebabName, $icon, $pluginUri, $pluginComponent);
                 $serviceProvider = $this->generatePluginServiceProvider($plugin, $name);
                 $pluginIndexVue = $this->generatePluginIndexVue($pluginTitle ?: $pluginStudly);
 
-                $pluginFiles['plugin_json'] = [
-                    'path' => "plugins/{$pluginStudly}/plugin.json",
+                $pluginFiles['manifest'] = [
+                    'path' => "plugins/{$pluginDirName}/manifest.json",
                     'content' => $pluginJson,
                 ];
                 $pluginFiles['service_provider'] = [
-                    'path' => "plugins/{$pluginStudly}/Providers/PluginServiceProvider.php",
+                    'path' => "plugins/{$pluginDirName}/Providers/PluginServiceProvider.php",
                     'content' => $serviceProvider,
                 ];
                 $pluginFiles['plugin_index_vue'] = [
-                    'path' => "plugins/{$pluginStudly}/resources/views/index.vue",
+                    'path' => "plugins/{$pluginDirName}/resources/views/index.vue",
                     'content' => $pluginIndexVue,
                 ];
 
-                $files[] = "plugins/{$pluginStudly}/plugin.json";
-                $files[] = "plugins/{$pluginStudly}/Providers/PluginServiceProvider.php";
-                $files[] = "plugins/{$pluginStudly}/resources/views/index.vue";
+                $files[] = "plugins/{$pluginDirName}/manifest.json";
+                $files[] = "plugins/{$pluginDirName}/Providers/PluginServiceProvider.php";
+                $files[] = "plugins/{$pluginDirName}/resources/views/index.vue";
             }
 
             // 无论新旧都生成 Admin 路由文件和业务端页面
             $pluginTitle = $config['plugin_title'] ?? null;
-            $pluginStudly = Str::studly(Str::snake($plugin));
-            $adminRoutesKey = "plugins/{$pluginStudly}/Admin/routes.php";
-            $httpRoutesKey = "plugins/{$pluginStudly}/Http/routes.php";
-            $pluginJsonKey = "plugins/{$pluginStudly}/plugin.json";
-            $pluginRoutesKey = "plugins/{$pluginStudly}/resources/routes/index.ts";
+            $pluginStudly = $info['studly'];
+            $adminRoutesKey = "plugins/{$pluginDirName}/Admin/routes.php";
+            $httpRoutesKey = "plugins/{$pluginDirName}/Http/routes.php";
+            $manifestKey = "plugins/{$pluginDirName}/manifest.json";
 
             $adminRoutes = $this->mergePluginAdminRoutesForResource(
                 $plugin,
@@ -614,47 +617,42 @@ class CodeGeneratorController extends AdminController
                 $name,
                 $kebabName,
                 $icon,
-                $virtualFiles[$pluginJsonKey] ?? null,
+                $virtualFiles[$manifestKey] ?? null,
                 $pluginUri,
                 $pluginComponent
             );
 
             $pluginFiles['admin_routes'] = [
-                'path' => "plugins/{$pluginStudly}/Admin/routes.php",
+                'path' => "plugins/{$pluginDirName}/Admin/routes.php",
                 'content' => $adminRoutes,
             ];
             $pluginFiles['http_routes'] = [
-                'path' => "plugins/{$pluginStudly}/Http/routes.php",
+                'path' => "plugins/{$pluginDirName}/Http/routes.php",
                 'content' => $httpRoutes,
             ];
             $pluginFiles['http_controller'] = [
-                'path' => "plugins/{$pluginStudly}/Http/Controllers/{$name}Controller.php",
+                'path' => "plugins/{$pluginDirName}/Http/Controllers/{$name}Controller.php",
                 'content' => $httpController,
             ];
-            $pluginFiles['plugin_routes'] = [
-                'path' => $pluginRoutesKey,
-                'content' => $this->generatePluginRoutesIndex($pluginStudly, $pluginKebab, $kebabName, $virtualFiles),
-            ];
             if (!$isNewPlugin) {
-                $pluginFiles['plugin_json_update'] = [
-                    'path' => "plugins/{$pluginStudly}/plugin.json",
+                $pluginFiles['manifest_update'] = [
+                    'path' => "plugins/{$pluginDirName}/manifest.json",
                     'content' => $pluginJsonUpdate,
                 ];
-                $files[] = "plugins/{$pluginStudly}/plugin.json";
+                $files[] = "plugins/{$pluginDirName}/manifest.json";
             }
 
-            $files[] = "plugins/{$pluginStudly}/Admin/routes.php";
-            $files[] = "plugins/{$pluginStudly}/resources/views/{$kebabName}/index.vue";
-            $files[] = "plugins/{$pluginStudly}/resources/routes/index.ts";
-            $files[] = "plugins/{$pluginStudly}/Http/routes.php";
-            $files[] = "plugins/{$pluginStudly}/Http/Controllers/{$name}Controller.php";
+            $files[] = "plugins/{$pluginDirName}/Admin/routes.php";
+            $files[] = "plugins/{$pluginDirName}/resources/views/{$kebabName}/index.vue";
+            $files[] = "plugins/{$pluginDirName}/Http/routes.php";
+            $files[] = "plugins/{$pluginDirName}/Http/Controllers/{$name}Controller.php";
         }
 
         // 迁移路径：插件放 plugin 自己的 database/migrations，核心放全局 database/migrations
         $timestamp = date('Y_m_d_His');
-        $pluginStudly = $plugin ? Str::studly(Str::snake($plugin)) : null;
+        $pluginDirName = $plugin ? $this->pluginBaseInfo($plugin)['dir_name'] : null;
         $migrationPath = $config['type'] === 'plugin'
-            ? "plugins/{$pluginStudly}/database/migrations/{$timestamp}_create_{$tableName}_table.php"
+            ? "plugins/{$pluginDirName}/database/migrations/{$timestamp}_create_{$tableName}_table.php"
             : "database/migrations/{$timestamp}_create_{$tableName}_table.php";
 
         // 基础预览文件
@@ -713,13 +711,13 @@ class CodeGeneratorController extends AdminController
 
     protected function generateControllerCode(string $name, string $controllerName, string $modelName, string $type, array $fields, array $gridColumns, array $filters = [], array $filterLayout = [], ?string $plugin = null): string
     {
-        $pluginStudly = $plugin ? Str::studly($plugin) : null;
+        $pluginSnake = $plugin ? Str::snake($plugin) : null;
         $namespace = $type === 'plugin'
-            ? "Plugins\\{$pluginStudly}\\Admin\\Controllers"
+            ? "Plugins\\{$pluginSnake}\\Admin\\Controllers"
             : 'App\\Admin\\Controllers';
 
         $modelNamespace = $type === 'plugin'
-            ? "Plugins\\{$pluginStudly}\\Models\\{$modelName}"
+            ? "Plugins\\{$pluginSnake}\\Models\\{$modelName}"
             : "App\\Models\\{$modelName}";
 
         $gridColumnsCode = $this->formatGridColumns($gridColumns, $fields, $modelName);
@@ -1260,8 +1258,8 @@ PHP;
 
     protected function generateModelCode(string $modelName, string $tableName, array $fillable, string $type, ?string $plugin = null, array $fields = [], array $filters = []): string
     {
-        $pluginStudly = $plugin ? Str::studly($plugin) : null;
-        $namespace = $type === 'plugin' ? "Plugins\\{$pluginStudly}\\Models" : 'App\\Models';
+        $pluginSnake = $plugin ? Str::snake($plugin) : null;
+        $namespace = $type === 'plugin' ? "Plugins\\{$pluginSnake}\\Models" : 'App\\Models';
         $fillable = array_values(array_filter($fillable, fn($k) => is_string($k) && $k !== '' && !in_array($k, ['id', 'created_at', 'updated_at', 'deleted_at'], true)));
         $fillableCode = empty($fillable) ? '//' : "'" . implode("',\n        '", $fillable) . "',";
         $baseModel = $type === 'plugin' ? '\\Illuminate\\Database\\Eloquent\\Model' : '\\Dabashan\\DbsAdmin\\Models\\BaseAdminModel';
@@ -1607,7 +1605,7 @@ TS;
     }
 
     /**
-     * 生成插件 manifest（plugin.json）
+     * 生成插件 manifest
      */
     protected function generatePluginJson(string $plugin, string $pluginTitle, string $name, string $kebabName, string $icon, ?string $pluginUri = null, ?string $pluginComponent = null): string
     {
@@ -1620,16 +1618,18 @@ TS;
             'description' => "{$name} 管理插件",
             'version' => '1.0.0',
             'author' => 'DbsAdmin Generator',
+            'type' => 'local',
             'enabled' => true,
             'icon' => $icon,
-            'type' => 'local',
             'show_api' => true,
+            'framework_key' => 'dbs-admin',
+            'min_framework_version' => '1.0.0',
             'requires' => [],
             'providers' => [
-                "Plugins\\{$pluginStudly}\\Providers\\PluginServiceProvider",
+                "Plugins\\{$pluginSnake}\\Providers\\PluginServiceProvider",
             ],
             'admin_controllers' => [
-                "Plugins\\{$pluginStudly}\\Admin\\Controllers\\{$name}Controller",
+                "Plugins\\{$pluginSnake}\\Admin\\Controllers\\{$name}Controller",
             ],
             'menus' => [
                 [
@@ -1647,6 +1647,9 @@ TS;
                     'http_path' => "/plugin/{$pluginSnake}/admin/{$kebabName}/*",
                 ],
             ],
+            'frontend_entry' => "assets/{$pluginSnake}.js",
+            'frontend_css' => "assets/{$pluginSnake}.css",
+            'requires_build' => true,
         ];
 
         return json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
@@ -1658,7 +1661,6 @@ TS;
     protected function generatePluginServiceProvider(string $plugin, string $name): string
     {
         $pluginSnake = Str::snake($plugin);
-        $pluginStudly = Str::studly($pluginSnake);
         $date = $this->formatDate();
 
         return <<<PHP
@@ -1674,7 +1676,7 @@ TS;
  * @Wiki: 更多问题请查看 wiki.dabashan.cc
  */
 
-namespace Plugins\\{$pluginStudly}\\Providers;
+namespace Plugins\\{$pluginSnake}\\Providers;
 
 use Dabashan\\DbsAdmin\\Providers\\PluginBaseProvider;
 
@@ -1691,8 +1693,7 @@ PHP;
     protected function generatePluginAdminRoutes(string $plugin, string $name, string $kebabName): string
     {
         $pluginSnake = Str::snake($plugin);
-        $pluginStudly = Str::studly($pluginSnake);
-        $controllerNamespace = "Plugins\\{$pluginStudly}\\Admin\\Controllers\\{$name}Controller";
+        $controllerNamespace = "Plugins\\{$pluginSnake}\\Admin\\Controllers\\{$name}Controller";
         $date = $this->formatDate();
 
         return <<<PHP
@@ -1741,8 +1742,7 @@ PHP;
     protected function generatePluginHttpRoutes(string $plugin, string $name, string $kebabName): string
     {
         $pluginSnake = Str::snake($plugin);
-        $pluginStudly = Str::studly($pluginSnake);
-        $controllerNamespace = "Plugins\\{$pluginStudly}\\Http\\Controllers\\{$name}Controller";
+        $controllerNamespace = "Plugins\\{$pluginSnake}\\Http\\Controllers\\{$name}Controller";
         $date = $this->formatDate();
 
         return <<<PHP
@@ -1787,7 +1787,7 @@ PHP;
      */
     protected function generatePluginHttpController(string $plugin, string $name): string
     {
-        $pluginStudly = Str::studly($plugin);
+        $pluginSnake = Str::snake($plugin);
         $modelName = $name;
         $date = $this->formatDate();
 
@@ -1804,11 +1804,11 @@ PHP;
  * @Wiki: 开发文档 wiki.dabashan.cc
  */
 
-namespace Plugins\\{$pluginStudly}\\Http\\Controllers;
+namespace Plugins\\{$pluginSnake}\\Http\\Controllers;
 
 use Illuminate\\Http\\Request;
 use Illuminate\\Routing\\Controller;
-use Plugins\\{$pluginStudly}\\Models\\{$modelName};
+use Plugins\\{$pluginSnake}\\Models\\{$modelName};
 
 class {$name}Controller extends Controller
 {
@@ -2343,36 +2343,33 @@ TS;
         $files = [];
 
         if ($type === 'plugin' && $plugin) {
-            $pluginStudly = Str::studly(Str::snake($plugin));
-            $pluginJsonPath = base_path("plugins/{$pluginStudly}/plugin.json");
-            $isNewPlugin = !file_exists($pluginJsonPath);
+            $info = $this->pluginBaseInfo($plugin);
+            $pluginDirName = $info['dir_name'];
+            $isNewPlugin = !file_exists($info['json_path']);
 
             // 插件模式：Admin 控制器和 Model
-            $files[] = "plugins/{$pluginStudly}/Admin/Controllers/{$name}Controller.php";
-            $files[] = "plugins/{$pluginStudly}/Models/{$name}.php";
+            $files[] = "plugins/{$pluginDirName}/Admin/Controllers/{$name}Controller.php";
+            $files[] = "plugins/{$pluginDirName}/Models/{$name}.php";
 
             // 迁移文件
             $timestamp = date('Y_m_d_His');
-            $files[] = "plugins/{$pluginStudly}/database/migrations/{$timestamp}_create_{$table}_table.php";
+            $files[] = "plugins/{$pluginDirName}/database/migrations/{$timestamp}_create_{$table}_table.php";
 
             // Admin 路由
-            $files[] = "plugins/{$pluginStudly}/Admin/routes.php";
+            $files[] = "plugins/{$pluginDirName}/Admin/routes.php";
 
             // 插件资源：Vue 页面（插件首页 + 业务页面）
-            $files[] = "plugins/{$pluginStudly}/resources/views/index.vue";
-            $files[] = "plugins/{$pluginStudly}/resources/views/{$kebabName}/index.vue";
-
-            // 插件资源：路由文件
-            $files[] = "plugins/{$pluginStudly}/resources/routes/index.ts";
+            $files[] = "plugins/{$pluginDirName}/resources/views/index.vue";
+            $files[] = "plugins/{$pluginDirName}/resources/views/{$kebabName}/index.vue";
 
             // Http 路由和控制器
-            $files[] = "plugins/{$pluginStudly}/Http/routes.php";
-            $files[] = "plugins/{$pluginStudly}/Http/Controllers/{$name}Controller.php";
+            $files[] = "plugins/{$pluginDirName}/Http/routes.php";
+            $files[] = "plugins/{$pluginDirName}/Http/Controllers/{$name}Controller.php";
 
-            // plugin.json（新增资源会追加到同一个文件）
-            $files[] = "plugins/{$pluginStudly}/plugin.json";
+            // manifest.json（新增资源会追加到同一个文件）
+            $files[] = "plugins/{$pluginDirName}/manifest.json";
             if ($isNewPlugin) {
-                $files[] = "plugins/{$pluginStudly}/Providers/PluginServiceProvider.php";
+                $files[] = "plugins/{$pluginDirName}/Providers/PluginServiceProvider.php";
             }
         } else {
             // 核心模块
@@ -2393,7 +2390,7 @@ TS;
     protected function getControllerPath(string $name, string $type, ?string $plugin): string
     {
         if ($type === 'plugin') {
-            return "plugins/" . Str::studly(Str::snake($plugin)) . "/Admin/Controllers/{$name}Controller.php";
+            return "plugins/" . $this->pluginBaseInfo((string) $plugin)['dir_name'] . "/Admin/Controllers/{$name}Controller.php";
         }
         // 核心模块：文件名加 ad_ 前缀
         return "app/Admin/Controllers/ad_{$name}Controller.php";
@@ -2403,7 +2400,7 @@ TS;
     {
         $modelName = $type === 'plugin' ? $name : "Admin{$name}";
         if ($type === 'plugin') {
-            return "plugins/" . Str::studly(Str::snake($plugin)) . "/Models/{$modelName}.php";
+            return "plugins/" . $this->pluginBaseInfo((string) $plugin)['dir_name'] . "/Models/{$modelName}.php";
         }
         // 核心模块：文件名加 ad_ 前缀
         return "app/Models/{$modelName}.php";
@@ -2412,7 +2409,7 @@ TS;
     protected function getVuePath(string $parent, string $kebabName, string $type, ?string $plugin): string
     {
         if ($type === 'plugin') {
-            return "plugins/" . Str::studly(Str::snake($plugin)) . "/resources/views/{$kebabName}/index.vue";
+            return "plugins/" . $this->pluginBaseInfo((string) $plugin)['dir_name'] . "/resources/views/{$kebabName}/index.vue";
         }
         // 核心模块：按路由层级组织视图目录
         // parent="system", kebabName="user" → web/src/views/system/user/index.vue
@@ -2423,8 +2420,9 @@ TS;
 
     protected function getRouterPath(string $parent, string $kebabName, string $type, ?string $pluginKebab = null): string
     {
+        // 插件模式不生成前端路由文件（路由由 manifest.json + dynamic-plugin-loader 动态注册）
         if ($type === 'plugin') {
-            return "plugins/" . Str::studly($pluginKebab) . "/resources/routes/index.ts";
+            throw new \RuntimeException('插件模式不生成独立前端路由文件，请使用 manifest.json 中的 component 字段声明前端组件');
         }
         return "web/src/router/routes/{$parent}-{$kebabName}.ts";
     }
@@ -2451,7 +2449,6 @@ TS;
                 $pluginInfo['json_path'],
                 $pluginInfo['dir'] . '/Admin/routes.php',
                 $pluginInfo['dir'] . '/Http/routes.php',
-                $pluginInfo['dir'] . '/resources/routes/index.ts',
             ];
         }
 
@@ -2526,8 +2523,6 @@ TS;
                             $resourceKebab,
                             $existing
                         );
-                    } elseif ($fullPath === $pluginInfo['dir'] . '/resources/routes/index.ts') {
-                        $content = $this->generatePluginRoutesIndex($pluginStudly, $pluginSnake, $resourceKebab);
                     }
                 }
 
@@ -2590,7 +2585,9 @@ TS;
     protected function doDelete(array $config): array
     {
         $plugin = $config['plugin'];
-        $pluginStudly = Str::studly($plugin);
+        $pluginInfo = $this->pluginBaseInfo($plugin);
+        $pluginName = $pluginInfo['snake'];
+        $pluginDirName = $pluginInfo['dir_name'];
         $name = Str::studly($config['name']);
         $kebabName = Str::kebab($config['name']);
         $basePath = base_path();
@@ -2598,26 +2595,26 @@ TS;
 
         // 安全检查：如果插件已安装，阻止删除
         if (class_exists('\Dabashan\DbsAdmin\Models\Plugin')) {
-            $existing = \Dabashan\DbsAdmin\Models\Plugin::where('name', $pluginStudly)->first();
+            $existing = \Dabashan\DbsAdmin\Models\Plugin::where('name', $pluginName)->first();
             if ($existing) {
                 throw new \Exception('该插件已安装（名称：' . $existing->title . '），请先在插件管理中卸载后再删除代码');
             }
         }
 
-        $pluginDir = $basePath . '/plugins/' . $pluginStudly;
+        $pluginDir = $basePath . '/plugins/' . $pluginDirName;
 
         // 1. 删除 Controller 文件
         $controllerPath = $pluginDir . '/Admin/Controllers/' . $name . 'Controller.php';
         if (file_exists($controllerPath)) {
             unlink($controllerPath);
-            $deletedFiles[] = 'plugins/' . $pluginStudly . '/Admin/Controllers/' . $name . 'Controller.php';
+            $deletedFiles[] = 'plugins/' . $pluginDirName . '/Admin/Controllers/' . $name . 'Controller.php';
         }
 
         // 2. 删除 Model 文件
         $modelPath = $pluginDir . '/Models/' . $name . '.php';
         if (file_exists($modelPath)) {
             unlink($modelPath);
-            $deletedFiles[] = 'plugins/' . $pluginStudly . '/Models/' . $name . '.php';
+            $deletedFiles[] = 'plugins/' . $pluginDirName . '/Models/' . $name . '.php';
         }
 
         // 3. 删除 Migration 文件（按表名匹配）
@@ -2628,7 +2625,7 @@ TS;
                 if ($file === '.' || $file === '..') continue;
                 if (stripos($file, 'create') !== false && stripos($file, $snakeName) !== false) {
                     unlink($migrationDir . '/' . $file);
-                    $deletedFiles[] = 'plugins/' . $pluginStudly . '/database/migrations/' . $file;
+                    $deletedFiles[] = 'plugins/' . $pluginDirName . '/database/migrations/' . $file;
                 }
             }
         }
@@ -2637,20 +2634,20 @@ TS;
         $businessVuePath = $pluginDir . '/resources/views/' . $kebabName . '/index.vue';
         if (file_exists($businessVuePath)) {
             unlink($businessVuePath);
-            $deletedFiles[] = 'plugins/' . $pluginStudly . '/resources/views/' . $kebabName . '/index.vue';
+            $deletedFiles[] = 'plugins/' . $pluginDirName . '/resources/views/' . $kebabName . '/index.vue';
         }
 
         $pluginIndexVuePath = $pluginDir . '/resources/views/index.vue';
         if (file_exists($pluginIndexVuePath)) {
             unlink($pluginIndexVuePath);
-            $deletedFiles[] = 'plugins/' . $pluginStudly . '/resources/views/index.vue';
+            $deletedFiles[] = 'plugins/' . $pluginDirName . '/resources/views/index.vue';
         }
 
         // 删除插件路由文件
         $pluginRoutePath = $pluginDir . '/resources/routes/' . $kebabName . '.ts';
         if (file_exists($pluginRoutePath)) {
             unlink($pluginRoutePath);
-            $deletedFiles[] = 'plugins/' . $pluginStudly . '/resources/routes/' . $kebabName . '.ts';
+            $deletedFiles[] = 'plugins/' . $pluginDirName . '/resources/routes/' . $kebabName . '.ts';
         }
 
         // 5. 删除 Admin/routes.php 中该资源的路由，如果无其他路由则删除整个文件
@@ -2664,10 +2661,10 @@ TS;
                 $hasRoutes = preg_match("/Route::(get|post|put|delete|patch|apiResource)/", $newContent);
                 if (!$hasRoutes) {
                     unlink($adminRoutesPath);
-                    $deletedFiles[] = 'plugins/' . $pluginStudly . '/Admin/routes.php';
+                    $deletedFiles[] = 'plugins/' . $pluginDirName . '/Admin/routes.php';
                 } else {
                     file_put_contents($adminRoutesPath, $newContent);
-                    $deletedFiles[] = 'plugins/' . $pluginStudly . '/Admin/routes.php';
+                    $deletedFiles[] = 'plugins/' . $pluginDirName . '/Admin/routes.php';
                 }
             }
         }
@@ -2676,17 +2673,17 @@ TS;
         $httpRoutesPath = $pluginDir . '/Http/routes.php';
         if (file_exists($httpRoutesPath)) {
             unlink($httpRoutesPath);
-            $deletedFiles[] = 'plugins/' . $pluginStudly . '/Http/routes.php';
+            $deletedFiles[] = 'plugins/' . $pluginDirName . '/Http/routes.php';
         }
 
         $httpControllerPath = $pluginDir . '/Http/Controllers/' . $name . 'Controller.php';
         if (file_exists($httpControllerPath)) {
             unlink($httpControllerPath);
-            $deletedFiles[] = 'plugins/' . $pluginStudly . '/Http/Controllers/' . $name . 'Controller.php';
+            $deletedFiles[] = 'plugins/' . $pluginDirName . '/Http/Controllers/' . $name . 'Controller.php';
         }
 
-        // 7. 从 plugin.json 中移除对应的菜单和权限
-        $pluginJsonPath = $pluginDir . '/plugin.json';
+        // 7. 从 manifest.json 中移除对应的菜单和权限
+        $pluginJsonPath = $pluginDir . '/manifest.json';
         if (file_exists($pluginJsonPath)) {
             $jsonContent = file_get_contents($pluginJsonPath);
             if ($jsonContent !== false) {
@@ -2717,7 +2714,7 @@ TS;
                         }));
                     }
                     file_put_contents($pluginJsonPath, json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-                    $deletedFiles[] = 'plugins/' . $pluginStudly . '/plugin.json';
+                    $deletedFiles[] = 'plugins/' . $pluginDirName . '/manifest.json';
                 }
             }
         }
@@ -2760,7 +2757,7 @@ TS;
                 'show_api' => true,
                 'requires' => [],
                 'providers' => [
-                    "Plugins\\{$info['studly']}\\Providers\\PluginServiceProvider",
+                    "Plugins\\{$info['snake']}\\Providers\\PluginServiceProvider",
                 ],
                 'admin_controllers' => [],
                 'menus' => [],
@@ -2802,7 +2799,7 @@ TS;
                             'show_api' => (bool) ($base['show_api'] ?? true),
                             'requires' => [],
                             'providers' => $base['providers'] ?? [
-                                "Plugins\\{$info['studly']}\\Providers\\PluginServiceProvider",
+                                "Plugins\\{$info['snake']}\\Providers\\PluginServiceProvider",
                             ],
                             'admin_controllers' => [],
                             'menus' => $base['menus'] ?? [],
@@ -2820,7 +2817,7 @@ TS;
 
         $raw = file_get_contents($info['json_path']);
         if ($raw === false) {
-            throw new \Exception('无法读取 plugin.json');
+            throw new \Exception('无法读取 manifest.json');
         }
         if (trim($raw) === '') {
             return json_encode(
@@ -2855,7 +2852,6 @@ TS;
     ): array {
         $currentName = $json['name'] ?? $info['snake'];
         $pluginSnake = Str::snake($currentName);
-        $pluginStudly = Str::studly($pluginSnake);
 
         $json['name'] = $pluginSnake;
 
@@ -2870,11 +2866,11 @@ TS;
         }
         if (!isset($json['providers']) || !is_array($json['providers']) || empty($json['providers'])) {
             $json['providers'] = [
-                "Plugins\\{$pluginStudly}\\Providers\\PluginServiceProvider",
+                "Plugins\\{$pluginSnake}\\Providers\\PluginServiceProvider",
             ];
         }
 
-        $controllerClass = "Plugins\\{$pluginStudly}\\Admin\\Controllers\\{$name}Controller";
+        $controllerClass = "Plugins\\{$pluginSnake}\\Admin\\Controllers\\{$name}Controller";
         if (!in_array($controllerClass, $json['admin_controllers'], true)) {
             $json['admin_controllers'][] = $controllerClass;
         }
@@ -2920,6 +2916,26 @@ TS;
             $json['title'] = $pluginTitle;
         }
 
+        // 补齐新架构必需字段，避免旧 manifest 缺少字段导致前端加载异常
+        if (!isset($json['framework_key'])) {
+            $json['framework_key'] = 'dbs-admin';
+        }
+        if (!isset($json['min_framework_version'])) {
+            $json['min_framework_version'] = '1.0.0';
+        }
+        if (!isset($json['frontend_entry'])) {
+            $json['frontend_entry'] = "assets/{$pluginSnake}.js";
+        }
+        if (!isset($json['frontend_css'])) {
+            $json['frontend_css'] = "assets/{$pluginSnake}.css";
+        }
+        if (!isset($json['requires_build'])) {
+            $json['requires_build'] = true;
+        }
+        if (!isset($json['type'])) {
+            $json['type'] = 'local';
+        }
+
         return $json;
     }
 
@@ -2929,7 +2945,6 @@ TS;
         if (!is_dir($controllersDir)) return;
 
         $pluginSnake = Str::snake((string) ($json['name'] ?? $info['snake']));
-        $pluginStudly = Str::studly($pluginSnake);
 
         foreach (glob($controllersDir . '/*Controller.php') ?: [] as $file) {
             $base = basename($file, '.php');
@@ -2937,7 +2952,7 @@ TS;
             $resource = substr($base, 0, -10);
             if ($resource === '') continue;
 
-            $controllerClass = "Plugins\\{$pluginStudly}\\Admin\\Controllers\\{$resource}Controller";
+            $controllerClass = "Plugins\\{$pluginSnake}\\Admin\\Controllers\\{$resource}Controller";
             if (!in_array($controllerClass, $json['admin_controllers'], true)) {
                 $json['admin_controllers'][] = $controllerClass;
             }
@@ -3002,8 +3017,8 @@ TS;
             $syncFromFilesystem = true;
         }
 
-        $pluginStudly = $info['studly'];
-        $controllerNamespace = "Plugins\\{$pluginStudly}\\Admin\\Controllers\\{$name}Controller";
+        $pluginSnake = $info['snake'];
+        $controllerNamespace = "Plugins\\{$pluginSnake}\\Admin\\Controllers\\{$name}Controller";
         $useLine = "use {$controllerNamespace};";
         if (strpos($content, $useLine) === false) {
             if (preg_match_all('/^use\s+[^;]+;\s*$/m', $content, $m, PREG_OFFSET_CAPTURE) && !empty($m[0])) {
@@ -3083,8 +3098,8 @@ TS;
             $syncFromFilesystem = true;
         }
 
-        $pluginStudly = $info['studly'];
-        $controllerNamespace = "Plugins\\{$pluginStudly}\\Http\\Controllers\\{$name}Controller";
+        $pluginSnake = $info['snake'];
+        $controllerNamespace = "Plugins\\{$pluginSnake}\\Http\\Controllers\\{$name}Controller";
         $useLine = "use {$controllerNamespace};";
         if (strpos($content, $useLine) === false) {
             if (preg_match_all('/^use\s+[^;]+;\s*$/m', $content, $m, PREG_OFFSET_CAPTURE) && !empty($m[0])) {

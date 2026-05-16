@@ -28,6 +28,8 @@ namespace Dabashan\DbsAdmin\Models;
  * @property array|null $permissions 插件权限
  * @property array|null $config 插件扩展配置
  * @property array|null $providers 插件 ServiceProvider 列表
+ * @property string|null $installation_hash Agent 安装哈希
+ * @property string|null $installed_at Agent 安装时间
  * @property bool $show_api 是否在API管理中显示
  * @property \Illuminate\Support\Carbon $created_at
  * @property \Illuminate\Support\Carbon $updated_at
@@ -50,6 +52,8 @@ class Plugin extends BaseAdminModel
         'permissions',
         'config',
         'providers',
+        'installation_hash',
+        'installed_at',
         'show_api',
     ];
 
@@ -61,7 +65,33 @@ class Plugin extends BaseAdminModel
         'permissions' => 'array',
         'config' => 'array',
         'providers' => 'array',
+        'installed_at' => 'datetime',
     ];
+
+    public function isValidInstallation(): bool
+    {
+        if ($this->type !== 'cloud') {
+            return true;
+        }
+
+        if (empty($this->installation_hash) || empty($this->installed_at)) {
+            return false;
+        }
+
+        $secret = (string) config('dbs_agent.site_secret', config('dbs_agent.token', ''));
+        $siteId = (string) config('dbs_agent.site_id', env('DBS_SITE_ID', ''));
+        if ($secret === '' || $siteId === '') {
+            return false;
+        }
+
+        $installedAt = method_exists($this->installed_at, 'toISOString')
+            ? $this->installed_at->toISOString()
+            : (string) $this->installed_at;
+
+        $expected = hash_hmac('sha256', $siteId . '|' . $this->name . '|' . $this->version . '|' . $installedAt, $secret);
+
+        return hash_equals($expected, (string) $this->installation_hash);
+    }
 
     /**
      * 仅启用的插件
